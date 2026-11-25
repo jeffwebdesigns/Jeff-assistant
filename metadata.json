@@ -1,0 +1,6 @@
+{
+  "name": "THE MACHINE",
+  "description": "Private single-owner personal AI assistant with offline-first IndexedDB storage, voice I/O, document analysis, and daily briefings.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

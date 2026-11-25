@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="machineGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8A6A1E" />
+      <stop offset="35%" stop-color="#D4AF37" />
+      <stop offset="50%" stop-color="#F7E7A9" />
+      <stop offset="68%" stop-color="#D4AF37" />
+      <stop offset="100%" stop-color="#8A6A1E" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#0A0A0A" />
+  <rect x="20" y="20" width="472" height="472" rx="80" fill="none" stroke="#2A2415" stroke-width="3" />
+  <circle cx="256" cy="256" r="158" fill="none" stroke="url(#machineGold)" stroke-width="9" />
+  <circle cx="256" cy="256" r="132" fill="none" stroke="#6B4F12" stroke-width="2.5" stroke-dasharray="10 14" />
+  <path d="M256 76 L256 108 M256 404 L256 436 M76 256 L108 256 M404 256 L436 256" stroke="#B8892B" stroke-width="6" stroke-linecap="round" />
+  <path d="M128 256 Q256 164 384 256 Q256 348 128 256 Z" fill="none" stroke="url(#machineGold)" stroke-width="11" stroke-linejoin="round" />
+  <circle cx="256" cy="256" r="42" fill="none" stroke="#F5D77A" stroke-width="9" />
+  <circle cx="256" cy="256" r="15" fill="#F7E7A9" />
+</svg>

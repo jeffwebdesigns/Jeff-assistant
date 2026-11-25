@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MACHINE VOICE</string>
+    <string name="notification_listener_label">Machine Voice Reader</string>
+    <string name="service_notification_title">Machine Voice Active</string>
+    <string name="service_notification_body">Listening locally. No data uploaded.</string>
+</resources>

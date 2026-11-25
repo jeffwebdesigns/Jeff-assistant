@@ -1,0 +1,422 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Cinzel", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --bg: #0A0A0A;
+    --surface: #121212;
+    --surface-2: #1A1A1A;
+    --border: #2A2415;
+
+    --gold-100: #F7E7A9;
+    --gold-300: #F5D77A;
+    --gold-500: #D4AF37;
+    --gold-700: #B8892B;
+    --gold-900: #6B4F12;
+    --gold-gradient: linear-gradient(135deg, #8A6A1E 0%, #D4AF37 35%, #F5D77A 50%, #D4AF37 65%, #8A6A1E 100%);
+
+    --text: #F5F0E1;
+    --text-muted: #A89F8A;
+    --text-on-gold: #0A0A0A;
+
+    --status-nominal: #D4AF37;
+    --status-elevated: #E8A317;
+    --status-critical: #C0392B;
+    --success: #7FB069;
+    --error: #E05A4F;
+  }
+
+  html[data-oled="true"] {
+    --bg: #000000;
+  }
+
+  html,
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+  }
+
+  h1,
+  h2,
+  .font-cinzel {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  h3 {
+    font-family: var(--font-sans);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Engraved Cinzel & Gold Helpers */
+.font-cinzel {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.section-title-gold {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--gold-500);
+}
+
+.gold-text-gradient {
+  background: var(--gold-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Core Component Primitives */
+.machine-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.15);
+  transition: border-color 150ms ease;
+}
+
+.machine-card:hover,
+.machine-card:focus-within {
+  border-color: var(--gold-700);
+}
+
+.machine-card-flat {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.15);
+}
+
+.machine-btn-primary {
+  background: var(--gold-gradient);
+  color: var(--text-on-gold);
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.25);
+  transition: filter 140ms ease, transform 120ms ease, opacity 140ms ease;
+}
+
+.machine-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.machine-btn-primary:active:not(:disabled) {
+  filter: brightness(0.88);
+  transform: scale(0.99);
+}
+
+.machine-btn-primary:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.machine-btn-secondary {
+  background-color: transparent;
+  border: 1px solid var(--gold-500);
+  color: var(--gold-300);
+  border-radius: 12px;
+  font-weight: 500;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.machine-btn-secondary:hover:not(:disabled) {
+  background-color: rgba(212, 175, 55, 0.1);
+  color: var(--gold-100);
+}
+
+.machine-btn-secondary:active:not(:disabled) {
+  background-color: rgba(212, 175, 55, 0.18);
+}
+
+.machine-btn-secondary:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.machine-btn-ghost {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 12px;
+  font-weight: 500;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.machine-btn-ghost:hover:not(:disabled) {
+  border-color: var(--gold-700);
+  color: var(--gold-100);
+}
+
+.machine-btn-ghost:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.machine-input {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 12px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.machine-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
+.machine-input:focus {
+  outline: none;
+  border-color: var(--gold-500);
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.35);
+}
+
+.machine-divider {
+  height: 1px;
+  width: 100%;
+  border: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--gold-900) 50%, transparent 100%);
+}
+
+/* Chat Bubbles */
+.machine-bubble-user {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold-500);
+  color: var(--text);
+}
+
+.machine-bubble-ai {
+  position: relative;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.machine-bubble-ai::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--gold-gradient);
+}
+
+/* Gold Range Slider */
+input[type="range"].machine-slider {
+  accent-color: var(--gold-500);
+}
+
+/* Subtle custom dark-gold scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-900);
+}
+
+/* Purposeful, GPU-friendly Motion */
+@keyframes machine-page-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.machine-page-enter {
+  animation: machine-page-in 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes machine-dot-pulse {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+.machine-dot-pulse {
+  animation: machine-dot-pulse 2.2s ease-in-out infinite;
+}
+
+.machine-dot-pulse-fast {
+  animation: machine-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes machine-typing-dot {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.machine-typing-dot {
+  animation: machine-typing-dot 1.2s ease-in-out infinite;
+}
+
+.machine-typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.machine-typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes machine-shimmer-line {
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(200%, 0, 0);
+  }
+}
+
+.machine-thinking-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--border);
+}
+
+.machine-thinking-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, var(--gold-300), var(--gold-500), transparent);
+  animation: machine-shimmer-line 1.6s linear infinite;
+}
+
+@keyframes machine-sparkle-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-12deg);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.25) rotate(6deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.55) rotate(18deg);
+  }
+}
+
+.machine-sparkle {
+  animation: machine-sparkle-pop 550ms ease-out forwards;
+}
+
+/* Boot Screen Animations (< 1.8s total) */
+@keyframes boot-stroke-draw {
+  from {
+    stroke-dashoffset: 320;
+    opacity: 0.4;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.boot-eye-draw {
+  stroke-dasharray: 320;
+  stroke-dashoffset: 320;
+  animation: boot-stroke-draw 850ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes boot-wordmark-reveal {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.boot-wordmark-in {
+  opacity: 0;
+  animation: boot-wordmark-reveal 480ms ease-out 520ms forwards;
+}
+
+@keyframes boot-shimmer-once {
+  0% {
+    transform: translate3d(-120%, 0, 0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(140%, 0, 0);
+    opacity: 0;
+  }
+}
+
+.boot-shimmer-sweep {
+  animation: boot-shimmer-once 750ms ease-out 780ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .machine-page-enter,
+  .machine-dot-pulse,
+  .machine-dot-pulse-fast,
+  .machine-typing-dot,
+  .machine-thinking-shimmer::after,
+  .machine-sparkle,
+  .boot-eye-draw,
+  .boot-wordmark-in,
+  .boot-shimmer-sweep {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
