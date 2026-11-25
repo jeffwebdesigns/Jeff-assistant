@@ -149,7 +149,7 @@ export function useSpeech() {
       }
 
       const instance = new recognitionCtor();
-      instance.lang = lang;
+      instance.lang = lang === 'sw-KE' ? 'en-KE' : lang;
       instance.interimResults = true;
       instance.continuous = false;
       instance.maxAlternatives = 1;
@@ -246,14 +246,23 @@ export function useSpeech() {
           const utterance = new SpeechSynthesisUtterance(chunks[idx]);
           utterance.rate = options?.rate ?? 1.0;
 
+          const englishVoices = available.filter((v) => v.lang.toLowerCase().startsWith('en'));
           if (options?.voiceURI) {
-            const matched = available.find((v) => v.voiceURI === options.voiceURI);
-            if (matched) utterance.voice = matched;
-          } else if (options?.langHint) {
-            const matched = available.find((v) =>
-              v.lang.toLowerCase().startsWith(options.langHint!.toLowerCase())
-            );
-            if (matched) utterance.voice = matched;
+            const matched = englishVoices.find((v) => v.voiceURI === options.voiceURI);
+            if (matched) {
+              utterance.voice = matched;
+              utterance.lang = matched.lang;
+            } else if (englishVoices[0]) {
+              utterance.voice = englishVoices[0];
+              utterance.lang = englishVoices[0].lang;
+            } else {
+              utterance.lang = 'en-US';
+            }
+          } else if (englishVoices[0]) {
+            utterance.voice = englishVoices[0];
+            utterance.lang = englishVoices[0].lang;
+          } else {
+            utterance.lang = 'en-US';
           }
 
           utterance.onstart = () => {
@@ -301,6 +310,8 @@ export function useSpeech() {
       abortControllerRef.current = controller;
       setIsSpeaking(true);
 
+      const ttsTimer = window.setTimeout(() => controller.abort(new DOMException('TTS timed out', 'TimeoutError')), 12000);
+
       void (async () => {
         try {
           const resp = await fetch('/api/ai/tts', {
@@ -310,9 +321,10 @@ export function useSpeech() {
             body: JSON.stringify({
               text: cleaned,
               voiceName: 'Charon',
-              language: options?.langHint ?? 'en',
+              language: 'en',
             }),
           });
+          window.clearTimeout(ttsTimer);
 
           if (!resp.ok) {
             throw new Error(`TTS HTTP ${resp.status}`);
@@ -342,6 +354,7 @@ export function useSpeech() {
 
           await audio.play();
         } catch (err) {
+          window.clearTimeout(ttsTimer);
           if (err instanceof DOMException && err.name === 'AbortError') return;
           if (playbackRunIdRef.current === runId) {
             speakWithBrowserFallback(cleaned, runId, options);

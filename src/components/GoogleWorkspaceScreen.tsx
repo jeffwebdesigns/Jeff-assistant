@@ -49,6 +49,7 @@ interface GoogleWorkspaceScreenProps {
   calendarEvents: CalendarEventItem[];
   onConnectGoogle: () => Promise<void>;
   onReconnectGoogle: () => Promise<void>;
+  onSwitchGoogleAccount: () => Promise<void>;
   onDisconnectGoogle: () => Promise<void>;
   onNavigate: (screen: ScreenId) => void;
   onReplaceEmails: (items: EmailSummaryItem[]) => Promise<void>;
@@ -66,6 +67,7 @@ export const GoogleWorkspaceScreen: React.FC<GoogleWorkspaceScreenProps> = ({
   calendarEvents,
   onConnectGoogle,
   onReconnectGoogle,
+  onSwitchGoogleAccount,
   onDisconnectGoogle,
   onNavigate,
   onReplaceEmails,
@@ -304,13 +306,23 @@ export const GoogleWorkspaceScreen: React.FC<GoogleWorkspaceScreenProps> = ({
               </button>
             )}
             {googleStatus === 'connected' && (
-              <button
-                type="button"
-                onClick={() => void onDisconnectGoogle()}
-                className="min-h-[44px] px-4 machine-btn-ghost text-xs whitespace-nowrap"
-              >
-                {t.google.disconnectBtn}
-              </button>
+              <>
+                <button
+                  type="button"
+                  disabled={isConnecting}
+                  onClick={() => void onSwitchGoogleAccount()}
+                  className="min-h-[44px] px-3.5 machine-btn-secondary text-xs whitespace-nowrap"
+                >
+                  {isConnecting ? 'Switching...' : 'Switch Account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onDisconnectGoogle()}
+                  className="min-h-[44px] px-4 machine-btn-ghost text-xs whitespace-nowrap"
+                >
+                  {t.google.disconnectBtn}
+                </button>
+              </>
             )}
             <button
               type="button"

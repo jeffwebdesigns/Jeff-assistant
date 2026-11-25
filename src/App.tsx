@@ -12,12 +12,36 @@ import {
   Settings,
   X,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import { registerSW } from 'virtual:pwa-register';
 import { createId, dbStorage } from './db/storage';
 import { getTranslations } from './i18n/translations';
 import { aiProvider, AIProviderError } from './services/aiProvider';
-import { evaluateDueReminders } from './services/notificationScheduler';
+import { dispatchSystemNotification, evaluateDueReminders } from './services/notificationScheduler';
 import { runCatchUpScan } from './services/catchUpScan';
+import {
+  buildHourlyUpdateReport,
+  collectDeviceTelemetry,
+  detectDeviceLabel,
+  type DeviceTelemetry,
+} from './services/hourlyUpdateService';
+import {
+  signInWithGoogleAccount,
+  signOutGoogleAccount,
+  subscribeFirebaseAuth,
+} from './services/firebase';
+import {
+  getLastCloudOwnerUid,
+  setLastCloudOwnerUid,
+  startUserRealtimeSync,
+  syncDeleteItem,
+  syncWriteItem,
+  syncWriteSettings,
+  type SyncCollectionName,
+  type SyncStatus,
+} from './services/realtimeSync';
+import { isWithinQuietHours } from './utils/datetime';
+import { useSpeech } from './hooks/useSpeech';
 import {
   buildMirroredReminders,
   fetchUpcomingCalendarEvents,
@@ -25,13 +49,16 @@ import {
 import { useGoogleAuth } from './hooks/useGoogleAuth';
 import {
   DEFAULT_SETTINGS,
+  type ActivityEventItem,
   type AlertLogItem,
   type BriefingItem,
   type BusinessMessageItem,
   type CalendarEventItem,
   type ChatMessage,
+  type ChatMode,
   type DocumentItem,
   type EmailSummaryItem,
+  type HourlyReportItem,
   type MachineSettings,
   type NoteItem,
   type ReminderItem,
@@ -43,6 +70,7 @@ import { PinLockScreen } from './components/PinLockScreen';
 import { OfflineBanner, PWAInstallButton } from './components/PWAInstallButton';
 import { BrandLogo } from './components/BrandMark';
 import { BootScreen } from './components/BootScreen';
+import { GoogleAccountControl } from './components/GoogleAccountButton';
 import { CommandCenter } from './components/CommandCenter';
 import { AIChatScreen } from './components/AIChatScreen';
 import { NotesTasksScreen } from './components/NotesTasksScreen';
@@ -68,16 +96,46 @@ export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [briefings, setBriefings] = useState<BriefingItem[]>([]);
   const [alertLogs, setAlertLogs] = useState<AlertLogItem[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityEventItem[]>([]);
+  const [hourlyReports, setHourlyReports] = useState<HourlyReportItem[]>([]);
+  const [deviceTelemetry, setDeviceTelemetry] = useState<DeviceTelemetry | null>(null);
   const [emailSummaries, setEmailSummaries] = useState<EmailSummaryItem[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventItem[]>([]);
   const [businessMessages, setBusinessMessages] = useState<BusinessMessageItem[]>([]);
 
+  // Cross-device cloud auth & real-time sync state
+  const [cloudUser, setCloudUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('local');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [cloudAuthBusy, setCloudAuthBusy] = useState(false);
+
   // Chat streaming state
+  const [chatMode, setChatMode] = useState<ChatMode>(() => {
+    try {
+      const saved = localStorage.getItem('machine_chat_mode');
+      return saved === 'research' || saved === 'fast' ? saved : 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
   const [isThinking, setIsThinking] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const lastUserMessageRef = useRef<string | null>(null);
+  const lastChatModeRef = useRef<ChatMode>(chatMode);
+  const chatsRef = useRef<ChatMessage[]>([]);
+  const settingsRef = useRef<MachineSettings>(settings);
+  const cloudUserRef = useRef<User | null>(cloudUser);
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const streamingTextRef = useRef('');
+  const isThinkingRef = useRef(false);
+  const hourlyRunningRef = useRef(false);
+
+  chatsRef.current = chats;
+  settingsRef.current = settings;
+  cloudUserRef.current = cloudUser;
 
   // Cross-screen handoffs & Web Share Target
   const [pendingChatPrompt, setPendingChatPrompt] = useState<string | null>(null);
@@ -89,9 +147,80 @@ export default function App() {
   const [catchUpTick, setCatchUpTick] = useState(0);
 
   const googleAuth = useGoogleAuth(settings.googleClientId);
+  const { speak, unlockAudio } = useSpeech();
+
+  const reportSyncError = useCallback((err: unknown) => {
+    const raw = err instanceof Error ? err.message : String(err);
+    let friendly = raw;
+    try {
+      const parsed = JSON.parse(raw) as { error?: string };
+      if (parsed?.error) friendly = parsed.error;
+    } catch {
+      // keep raw message
+    }
+    setSyncStatus('error');
+    setSyncError(friendly);
+  }, []);
+
+  const pushItemToCloud = useCallback(
+    (colName: SyncCollectionName, item: { id: string }) => {
+      const u = cloudUserRef.current;
+      if (!u || !u.emailVerified) return;
+      void syncWriteItem(u.uid, colName, item).catch(reportSyncError);
+    },
+    [reportSyncError]
+  );
+
+  const deleteItemFromCloud = useCallback(
+    (colName: SyncCollectionName, id: string) => {
+      const u = cloudUserRef.current;
+      if (!u || !u.emailVerified) return;
+      void syncDeleteItem(u.uid, colName, id).catch(reportSyncError);
+    },
+    [reportSyncError]
+  );
+
+  const pushSettingsToCloud = useCallback(
+    (nextSettings: MachineSettings) => {
+      const u = cloudUserRef.current;
+      if (!u || !u.emailVerified) return;
+      void syncWriteSettings(u.uid, nextSettings).catch(reportSyncError);
+    },
+    [reportSyncError]
+  );
+
+  const handleChooseCloudAccount = useCallback(async () => {
+    setCloudAuthBusy(true);
+    setSyncError(null);
+    try {
+      await signInWithGoogleAccount();
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (
+        code !== 'auth/popup-closed-by-user' &&
+        code !== 'auth/cancelled-popup-request'
+      ) {
+        setSyncError(err instanceof Error ? err.message : 'Unable to sign in with Google.');
+      }
+    } finally {
+      setCloudAuthBusy(false);
+    }
+  }, []);
+
+  const handleSignOutCloudAccount = useCallback(async () => {
+    setCloudAuthBusy(true);
+    setSyncError(null);
+    try {
+      await signOutGoogleAccount();
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Unable to sign out.');
+    } finally {
+      setCloudAuthBusy(false);
+    }
+  }, []);
 
   const loadAllFromIndexedDB = useCallback(async () => {
-    const [s, n, tk, r, c, d, b, al, em, cal, biz] = await Promise.all([
+    const [s, n, tk, r, c, d, b, al, act, hr, em, cal, biz] = await Promise.all([
       dbStorage.getSettings(),
       dbStorage.listNotes(),
       dbStorage.listTasks(),
@@ -100,6 +229,8 @@ export default function App() {
       dbStorage.listDocuments(),
       dbStorage.listBriefings(),
       dbStorage.listAlertLogs(),
+      dbStorage.listActivityLogs(),
+      dbStorage.listHourlyReports(),
       dbStorage.listEmailSummaries(),
       dbStorage.listCalendarEvents(),
       dbStorage.listBusinessMessages(),
@@ -112,6 +243,8 @@ export default function App() {
     setDocuments(d);
     setBriefings(b);
     setAlertLogs(al);
+    setActivityLogs(act);
+    setHourlyReports(hr);
     setEmailSummaries(em);
     setCalendarEvents(cal);
     setBusinessMessages(biz);
@@ -122,6 +255,98 @@ export default function App() {
   useEffect(() => {
     void loadAllFromIndexedDB();
   }, [loadAllFromIndexedDB]);
+
+  // Listen to Firebase Auth state changes (Google account sign-in / switch / sign-out)
+  useEffect(() => {
+    const unsubscribe = subscribeFirebaseAuth((user) => {
+      setCloudUser(user);
+      setAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Attach real-time Firestore cross-device listeners whenever a Google account is active
+  useEffect(() => {
+    if (!loaded || !authReady) return;
+
+    if (!cloudUser) {
+      setLastCloudOwnerUid(null);
+      setSyncStatus('local');
+      setSyncError(null);
+      return;
+    }
+
+    if (!cloudUser.emailVerified) {
+      setSyncStatus('error');
+      setSyncError('Please use a Google account with a verified email for real-time sync.');
+      return;
+    }
+
+    let active = true;
+    let stopRealtime: (() => void) | null = null;
+
+    void (async () => {
+      const prevOwnerUid = getLastCloudOwnerUid();
+      const switchedAccount = Boolean(prevOwnerUid && prevOwnerUid !== cloudUser.uid);
+
+      if (switchedAccount) {
+        const currentSettings = settingsRef.current;
+        await dbStorage.deleteAllData();
+        const resetSettings: MachineSettings = {
+          ...DEFAULT_SETTINGS,
+          pinEnabled: currentSettings.pinEnabled,
+          pinSalt: currentSettings.pinSalt,
+          pinHash: currentSettings.pinHash,
+        };
+        await dbStorage.saveSettings(resetSettings);
+        if (!active) return;
+        setSettings(resetSettings);
+        setNotes([]);
+        setTasks([]);
+        setReminders([]);
+        setChats([]);
+        setDocuments([]);
+        setBriefings([]);
+        setAlertLogs([]);
+        setActivityLogs([]);
+        setHourlyReports([]);
+        setEmailSummaries([]);
+        setCalendarEvents([]);
+        setBusinessMessages([]);
+      }
+
+      setLastCloudOwnerUid(cloudUser.uid);
+      if (!active) return;
+
+      stopRealtime = startUserRealtimeSync({
+        user: cloudUser,
+        allowMergeLocalIntoCloud: !switchedAccount,
+        callbacks: {
+          getLocalSettings: () => settingsRef.current,
+          onSettings: setSettings,
+          onNotes: setNotes,
+          onTasks: setTasks,
+          onReminders: setReminders,
+          onChats: setChats,
+          onDocuments: setDocuments,
+          onBriefings: setBriefings,
+          onActivityLogs: setActivityLogs,
+          onHourlyReports: setHourlyReports,
+          onBusinessMessages: setBusinessMessages,
+          onAlertLogs: setAlertLogs,
+          onSyncStatus: (status, errMsg) => {
+            setSyncStatus(status);
+            setSyncError(errMsg ?? null);
+          },
+        },
+      });
+    })();
+
+    return () => {
+      active = false;
+      stopRealtime?.();
+    };
+  }, [loaded, authReady, cloudUser]);
 
   // Sync Pure OLED Black mode (#000000 vs #0A0A0A)
   useEffect(() => {
@@ -173,6 +398,9 @@ export default function App() {
         setReminders(updatedReminders);
         setSettings(updatedSettings);
         setAlertLogs((prev) => [...newLogs, ...prev]);
+        pushSettingsToCloud(updatedSettings);
+        for (const l of newLogs) pushItemToCloud('alertLogs', l);
+        for (const rem of updatedReminders) pushItemToCloud('reminders', rem);
         if (inAppBanner) {
           setAlertToast(inAppBanner);
           window.setTimeout(() => setAlertToast(null), 7000);
@@ -196,6 +424,173 @@ export default function App() {
     };
   }, [loaded, unlocked, reminders, tasks, settings]);
 
+  // Refresh live device telemetry on load, network change, and visibility changes
+  const refreshTelemetry = useCallback(async () => {
+    const tlm = await collectDeviceTelemetry({
+      googleStatus: googleAuth.status,
+      remainingSeconds: googleAuth.remainingSeconds,
+    });
+    setDeviceTelemetry(tlm);
+    return tlm;
+  }, [googleAuth.status, googleAuth.remainingSeconds]);
+
+  useEffect(() => {
+    if (!loaded || !unlocked) return;
+    void refreshTelemetry();
+    const onNet = () => void refreshTelemetry();
+    const onVis = () => void refreshTelemetry();
+    window.addEventListener('online', onNet);
+    window.addEventListener('offline', onNet);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('online', onNet);
+      window.removeEventListener('offline', onNet);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [loaded, unlocked, refreshTelemetry]);
+
+  const recordActivity = useCallback(
+    (action: string, detail = '', targetScreen?: ScreenId) => {
+      const ev: ActivityEventItem = {
+        id: createId('act'),
+        action,
+        detail: detail.slice(0, 120),
+        screen: targetScreen ?? screen,
+        timestamp: new Date().toISOString(),
+        deviceLabel: detectDeviceLabel(),
+      };
+      setActivityLogs((prev) => [ev, ...prev].slice(0, 180));
+      void dbStorage.saveActivityLog(ev).catch(() => {});
+      pushItemToCloud('activityLogs', ev);
+    },
+    [pushItemToCloud, screen]
+  );
+
+  const navigateTo = useCallback(
+    (next: ScreenId) => {
+      if (next !== screen) {
+        setScreen(next);
+        recordActivity('Opened screen', next, next);
+      }
+    },
+    [recordActivity, screen]
+  );
+
+  const runHourlyUpdate = useCallback(
+    async (opts?: { manual?: boolean; silentInit?: boolean }) => {
+      if (hourlyRunningRef.current) return;
+      hourlyRunningRef.current = true;
+      try {
+        const telemetry = await refreshTelemetry();
+        const report = buildHourlyUpdateReport({
+          telemetry,
+          settings,
+          activityLogs,
+          tasks,
+          reminders,
+          notes,
+          calendarEvents,
+          emailSummaries,
+        });
+
+        setHourlyReports((prev) => [report, ...prev].slice(0, 48));
+        await dbStorage.saveHourlyReport(report);
+        pushItemToCloud('hourlyReports', report);
+
+        const nextSettings: MachineSettings = {
+          ...settings,
+          lastHourlyUpdateAt: report.timestamp,
+        };
+        setSettings(nextSettings);
+        await dbStorage.saveSettings(nextSettings);
+        pushSettingsToCloud(nextSettings);
+
+        if (!opts?.silentInit) {
+          const channel = await dispatchSystemNotification(
+            'THE MACHINE — Hourly Device & Activity Update',
+            report.spokenSummary,
+            report.id
+          );
+          const log: AlertLogItem = {
+            id: createId('alog'),
+            reminderId: report.id,
+            title: 'Hourly Device & Activity Update',
+            triggerType: 'hourly_update',
+            firedAt: report.timestamp,
+            channel,
+          };
+          setAlertLogs((prev) => [log, ...prev]);
+          await dbStorage.saveAlertLog(log);
+          pushItemToCloud('alertLogs', log);
+
+          setAlertToast(report.spokenSummary);
+          window.setTimeout(() => setAlertToast(null), 10000);
+
+          if (opts?.manual || (settings.hourlySpeakEnabled !== false && settings.voiceOutputEnabled)) {
+            speak(report.spokenSummary, {
+              rate: settings.voiceRate,
+              voiceURI: settings.voiceURI,
+              langHint: 'en',
+            });
+          }
+        }
+      } finally {
+        hourlyRunningRef.current = false;
+      }
+    },
+    [
+      activityLogs,
+      calendarEvents,
+      emailSummaries,
+      notes,
+      refreshTelemetry,
+      reminders,
+      settings,
+      speak,
+      tasks,
+    ]
+  );
+
+  // Automatic 1-hour device & activity update scheduler
+  useEffect(() => {
+    if (!loaded || !unlocked) return;
+
+    const checkHourly = async () => {
+      if (!settings.lastHourlyUpdateAt) {
+        await runHourlyUpdate({ silentInit: true });
+        return;
+      }
+      if (settings.hourlyUpdatesEnabled === false) return;
+      const lastMs = Date.parse(settings.lastHourlyUpdateAt);
+      if (Number.isNaN(lastMs) || Date.now() - lastMs >= 60 * 60 * 1000) {
+        const quiet = isWithinQuietHours(
+          new Date(),
+          settings.quietHoursEnabled,
+          settings.quietHoursStart,
+          settings.quietHoursEnd,
+          settings.timezone
+        );
+        if (!quiet) {
+          await runHourlyUpdate({ manual: false });
+        }
+      }
+    };
+
+    void checkHourly();
+    const timer = window.setInterval(() => void checkHourly(), 30000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void checkHourly();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loaded, unlocked, settings, runHourlyUpdate]);
+
   // Catch-Up Scan Priority Feed
   const catchUpItems = useMemo(() => {
     if (!loaded) return [];
@@ -214,6 +609,7 @@ export default function App() {
   const handleUpdateSettings = async (next: MachineSettings) => {
     setSettings(next);
     await dbStorage.saveSettings(next);
+    pushSettingsToCloud(next);
   };
 
   const handleReplaceCalendarEvents = useCallback(
@@ -226,26 +622,50 @@ export default function App() {
       setReminders(mergedReminders);
       for (const rem of mergedReminders) {
         await dbStorage.saveReminder(rem);
+        pushItemToCloud('reminders', rem);
       }
       // Remove stale mirrored reminders that are no longer in upcoming events
       const validIds = new Set(mergedReminders.map((r) => r.id));
       for (const prev of reminders) {
         if (prev.source === 'google_calendar' && !validIds.has(prev.id)) {
           await dbStorage.deleteReminder(prev.id);
+          deleteItemFromCloud('reminders', prev.id);
         }
       }
     },
-    [reminders]
+    [deleteItemFromCloud, pushItemToCloud, reminders]
   );
 
+  const handleCancelChat = useCallback(() => {
+    chatAbortRef.current?.abort(new DOMException('Cancelled by user', 'AbortError'));
+  }, []);
+
+  const handleChangeChatMode = useCallback((nextMode: ChatMode) => {
+    setChatMode(nextMode);
+    try {
+      localStorage.setItem('machine_chat_mode', nextMode);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const handleSendChat = useCallback(
-    async (text: string) => {
+    async (text: string, overrideMode?: ChatMode) => {
       const trimmed = text.trim();
-      if (!trimmed || isThinking) return;
+      if (!trimmed) return;
+
+      const activeMode: ChatMode = overrideMode ?? chatMode;
+
+      // If an earlier request is somehow still running, cancel it cleanly instead of dropping the new prompt
+      if (isThinkingRef.current) {
+        chatAbortRef.current?.abort(new DOMException('Superseded by new message', 'AbortError'));
+      }
 
       setRateLimitMessage(null);
       setLastError(null);
       lastUserMessageRef.current = trimmed;
+      lastChatModeRef.current = activeMode;
+      recordActivity('Asked AI Chat', trimmed.slice(0, 70), 'chat');
 
       const userMsg: ChatMessage = {
         id: createId('msg'),
@@ -254,17 +674,26 @@ export default function App() {
         timestamp: new Date().toISOString(),
       };
 
-      const nextHistory = [...chats, userMsg];
+      const historyBefore = chatsRef.current;
+      const nextHistory = [...historyBefore, userMsg];
+      chatsRef.current = nextHistory;
       setChats(nextHistory);
-      await dbStorage.saveChat(userMsg);
+      // Persist user message without delaying the network call
+      void dbStorage.saveChat(userMsg).catch(() => {});
+      pushItemToCloud('chats', userMsg);
 
+      const controller = new AbortController();
+      chatAbortRef.current = controller;
+      isThinkingRef.current = true;
+      streamingTextRef.current = '';
       setIsThinking(true);
       setStreamingText('');
 
       try {
         const result = await aiProvider.streamChat({
           message: trimmed,
-          history: chats,
+          mode: activeMode,
+          history: historyBefore,
           settings,
           tasks,
           reminders,
@@ -273,43 +702,84 @@ export default function App() {
           calendarEvents,
           emailSummaries,
           businessMessages,
-          onChunk: (partial) => setStreamingText(partial),
+          activityLogs,
+          deviceTelemetry,
+          signal: controller.signal,
+          onChunk: (partial) => {
+            streamingTextRef.current = partial;
+            setStreamingText(partial);
+          },
         });
 
         const assistantMsg: ChatMessage = {
           id: createId('msg'),
           role: 'assistant',
-          content: result.text || 'STATUS: NOMINAL\nOBSERVATION: No response text received.',
+          content: result.text,
           timestamp: new Date().toISOString(),
           sources: result.sources,
         };
         setChats((prev) => [...prev, assistantMsg]);
-        await dbStorage.saveChat(assistantMsg);
+        void dbStorage.saveChat(assistantMsg).catch(() => {});
+        pushItemToCloud('chats', assistantMsg);
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          const partial = streamingTextRef.current.trim();
+          if (partial) {
+            const partialMsg: ChatMessage = {
+              id: createId('msg'),
+              role: 'assistant',
+              content: partial,
+              timestamp: new Date().toISOString(),
+            };
+            setChats((prev) => [...prev, partialMsg]);
+            void dbStorage.saveChat(partialMsg).catch(() => {});
+            pushItemToCloud('chats', partialMsg);
+          }
+          return;
+        }
         if (err instanceof AIProviderError && err.isRateLimit) {
           setRateLimitMessage(err.message || t.chat.rateLimitMsg);
         } else {
           setLastError(err instanceof Error ? err.message : 'Error communicating with THE MACHINE.');
         }
       } finally {
-        setIsThinking(false);
-        setStreamingText('');
+        if (chatAbortRef.current === controller) {
+          chatAbortRef.current = null;
+          isThinkingRef.current = false;
+          streamingTextRef.current = '';
+          setIsThinking(false);
+          setStreamingText('');
+        }
       }
     },
-    [businessMessages, calendarEvents, chats, documents, emailSummaries, isThinking, notes, reminders, settings, t.chat.rateLimitMsg, tasks]
+    [businessMessages, calendarEvents, chatMode, documents, emailSummaries, notes, pushItemToCloud, recordActivity, reminders, settings, t.chat.rateLimitMsg, tasks, activityLogs, deviceTelemetry]
   );
 
   const handleRetryLast = async () => {
     const prompt = lastUserMessageRef.current;
-    if (!prompt || isThinking) return;
+    if (!prompt || isThinkingRef.current) return;
     setRateLimitMessage(null);
     setLastError(null);
+
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+    isThinkingRef.current = true;
+    streamingTextRef.current = '';
     setIsThinking(true);
     setStreamingText('');
+
+    const currentChats = chatsRef.current;
+    const last = currentChats[currentChats.length - 1];
+    const cleanHistory =
+      last && last.role === 'user' && last.content === prompt
+        ? currentChats.slice(0, -1)
+        : currentChats;
+
     try {
       const result = await aiProvider.streamChat({
         message: prompt,
-        history: chats.slice(0, -1),
+        mode: lastChatModeRef.current,
+        history: cleanHistory,
         settings,
         tasks,
         reminders,
@@ -318,7 +788,13 @@ export default function App() {
         calendarEvents,
         emailSummaries,
         businessMessages,
-        onChunk: (partial) => setStreamingText(partial),
+        activityLogs,
+        deviceTelemetry,
+        signal: controller.signal,
+        onChunk: (partial) => {
+          streamingTextRef.current = partial;
+          setStreamingText(partial);
+        },
       });
       const assistantMsg: ChatMessage = {
         id: createId('msg'),
@@ -328,16 +804,37 @@ export default function App() {
         sources: result.sources,
       };
       setChats((prev) => [...prev, assistantMsg]);
-      await dbStorage.saveChat(assistantMsg);
+      void dbStorage.saveChat(assistantMsg).catch(() => {});
+      pushItemToCloud('chats', assistantMsg);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        const partial = streamingTextRef.current.trim();
+        if (partial) {
+          const partialMsg: ChatMessage = {
+            id: createId('msg'),
+            role: 'assistant',
+            content: partial,
+            timestamp: new Date().toISOString(),
+          };
+          setChats((prev) => [...prev, partialMsg]);
+          void dbStorage.saveChat(partialMsg).catch(() => {});
+          pushItemToCloud('chats', partialMsg);
+        }
+        return;
+      }
       if (err instanceof AIProviderError && err.isRateLimit) {
         setRateLimitMessage(err.message || t.chat.rateLimitMsg);
       } else {
         setLastError(err instanceof Error ? err.message : 'Error communicating with THE MACHINE.');
       }
     } finally {
-      setIsThinking(false);
-      setStreamingText('');
+      if (chatAbortRef.current === controller) {
+        chatAbortRef.current = null;
+        isThinkingRef.current = false;
+        streamingTextRef.current = '';
+        setIsThinking(false);
+        setStreamingText('');
+      }
     }
   };
 
@@ -419,7 +916,7 @@ export default function App() {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setScreen(item.id)}
+                  onClick={() => navigateTo(item.id)}
                   className={`w-full min-h-[44px] px-3 rounded-xl flex items-center gap-3 text-sm font-medium transition border ${
                     active
                       ? 'bg-[var(--surface-2)] text-[var(--gold-300)] border-[var(--gold-700)]'
@@ -439,6 +936,15 @@ export default function App() {
 
         <div className="pt-4 space-y-3">
           <hr className="machine-divider" />
+          <GoogleAccountControl
+            compact
+            user={cloudUser}
+            syncStatus={syncStatus}
+            syncError={syncError}
+            busy={cloudAuthBusy}
+            onChooseAccount={() => void handleChooseCloudAccount()}
+            onSignOut={() => void handleSignOutCloudAccount()}
+          />
           <PWAInstallButton />
           <p className="text-[11px] font-mono text-[var(--text-muted)] px-1 tabular-nums">
             {settings.timezone} · {settings.currency}
@@ -468,12 +974,34 @@ export default function App() {
         )}
 
         {/* Compact Mobile Top Header (solid --bg, zero heavy blur for low-end Android performance) */}
-        <header className="lg:hidden sticky top-0 z-30 h-14 bg-[var(--bg)] border-b border-[var(--border)] px-4 flex items-center justify-between gap-3">
+        <header className="lg:hidden sticky top-0 z-30 h-14 bg-[var(--bg)] border-b border-[var(--border)] px-3 flex items-center justify-between gap-2">
           <BrandLogo compact />
           <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--gold-500)] truncate">
             {activeScreenLabel}
           </span>
-          <div className="shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              disabled={cloudAuthBusy}
+              onClick={() => void handleChooseCloudAccount()}
+              aria-label={cloudUser ? `Switch Google account (${cloudUser.email})` : 'Choose Google account'}
+              className="min-h-[44px] px-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--gold-500)] text-[11px] font-mono flex items-center gap-1.5 text-[var(--text)]"
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  syncStatus === 'synced'
+                    ? 'bg-[var(--success)]'
+                    : syncStatus === 'syncing'
+                    ? 'bg-[var(--gold-300)] machine-dot-pulse-fast'
+                    : syncStatus === 'error'
+                    ? 'bg-[var(--error)]'
+                    : 'bg-[var(--text-muted)]'
+                }`}
+              />
+              <span className="truncate max-w-[90px]">
+                {cloudUser ? (cloudUser.displayName?.split(' ')[0] || 'Synced') : 'Google'}
+              </span>
+            </button>
             <PWAInstallButton compact />
           </div>
         </header>
@@ -507,15 +1035,24 @@ export default function App() {
                 notes={notes}
                 briefings={briefings}
                 catchUpItems={catchUpItems}
+                deviceTelemetry={deviceTelemetry}
+                activityLogs={activityLogs}
+                hourlyReports={hourlyReports}
                 isThinking={isThinking}
-                onNavigate={(next) => setScreen(next)}
+                cloudUser={cloudUser}
+                syncStatus={syncStatus}
+                syncError={syncError}
+                cloudAuthBusy={cloudAuthBusy}
+                onChooseCloudAccount={() => void handleChooseCloudAccount()}
+                onSignOutCloudAccount={() => void handleSignOutCloudAccount()}
+                onNavigate={navigateTo}
                 onQuickChat={(prompt) => {
                   setPendingChatPrompt(prompt);
-                  setScreen('chat');
+                  navigateTo('chat');
                 }}
                 onQuickParse={(text) => {
                   setPendingParseText(text);
-                  setScreen('notes_tasks');
+                  navigateTo('notes_tasks');
                 }}
                 onToggleTaskStatus={async (task) => {
                   const nextStatus: TaskStatus = task.status === 'done' ? 'todo' : 'done';
@@ -526,8 +1063,21 @@ export default function App() {
                   };
                   await dbStorage.saveTask(updated);
                   setTasks((prev) => prev.map((x) => (x.id === task.id ? updated : x)));
+                  pushItemToCloud('tasks', updated);
+                  recordActivity(
+                    nextStatus === 'done' ? 'Completed task' : 'Reopened task',
+                    task.title,
+                    'command'
+                  );
                 }}
-                onRunCatchUp={() => setCatchUpTick((x) => x + 1)}
+                onRunCatchUp={() => {
+                  setCatchUpTick((x) => x + 1);
+                  recordActivity('Refreshed catch-up scan', '', 'command');
+                }}
+                onRunHourlyUpdate={() => {
+                  unlockAudio();
+                  void runHourlyUpdate({ manual: true });
+                }}
               />
             )}
 
@@ -538,17 +1088,25 @@ export default function App() {
                 tasks={tasks}
                 reminders={reminders}
                 notes={notes}
+                chatMode={chatMode}
                 isThinking={isThinking}
                 streamingText={streamingText}
                 rateLimitMessage={rateLimitMessage}
                 lastError={lastError}
                 pendingPrompt={pendingChatPrompt}
                 onConsumePendingPrompt={() => setPendingChatPrompt(null)}
+                onChangeChatMode={handleChangeChatMode}
                 onSendMessage={handleSendChat}
+                onCancelStream={handleCancelChat}
                 onRetryLast={handleRetryLast}
                 onClearChats={async () => {
+                  const ids = chatsRef.current.map((c) => c.id);
                   await dbStorage.clearChats();
                   setChats([]);
+                  for (const id of ids) {
+                    deleteItemFromCloud('chats', id);
+                  }
+                  recordActivity('Cleared chat history', '', 'chat');
                 }}
                 onChangeVoiceLang={(lang) => {
                   void handleUpdateSettings({ ...settings, voiceInputLang: lang });
@@ -569,22 +1127,32 @@ export default function App() {
                 onSaveTask={async (task) => {
                   await dbStorage.saveTask(task);
                   setTasks(await dbStorage.listTasks());
+                  pushItemToCloud('tasks', task);
+                  recordActivity('Saved task', task.title, 'notes_tasks');
                 }}
                 onDeleteTask={async (id) => {
                   await dbStorage.deleteTask(id);
                   setTasks(await dbStorage.listTasks());
+                  deleteItemFromCloud('tasks', id);
+                  recordActivity('Deleted task', '', 'notes_tasks');
                 }}
                 onSaveNote={async (note) => {
                   await dbStorage.saveNote(note);
                   setNotes(await dbStorage.listNotes());
+                  pushItemToCloud('notes', note);
+                  recordActivity('Saved note', note.title, 'notes_tasks');
                 }}
                 onDeleteNote={async (id) => {
                   await dbStorage.deleteNote(id);
                   setNotes(await dbStorage.listNotes());
+                  deleteItemFromCloud('notes', id);
+                  recordActivity('Deleted note', '', 'notes_tasks');
                 }}
                 onSaveReminder={async (rem) => {
                   await dbStorage.saveReminder(rem);
                   setReminders(await dbStorage.listReminders());
+                  pushItemToCloud('reminders', rem);
+                  recordActivity('Saved reminder', rem.title, 'notes_tasks');
                 }}
               />
             )}
@@ -594,26 +1162,41 @@ export default function App() {
                 settings={settings}
                 reminders={reminders}
                 alertLogs={alertLogs}
+                hourlyReports={hourlyReports}
+                deviceTelemetry={deviceTelemetry}
                 googleStatus={googleAuth.status}
                 onSaveReminder={async (rem) => {
                   await dbStorage.saveReminder(rem);
                   setReminders(await dbStorage.listReminders());
+                  pushItemToCloud('reminders', rem);
+                  recordActivity(
+                    rem.completed ? 'Completed reminder' : 'Saved reminder',
+                    rem.title,
+                    'reminders'
+                  );
                 }}
                 onDeleteReminder={async (id) => {
                   await dbStorage.deleteReminder(id);
                   setReminders(await dbStorage.listReminders());
+                  deleteItemFromCloud('reminders', id);
+                  recordActivity('Deleted reminder', '', 'reminders');
                 }}
                 onUpdateSettings={handleUpdateSettings}
                 onAddAlertLog={async (log) => {
                   await dbStorage.saveAlertLog(log);
                   setAlertLogs(await dbStorage.listAlertLogs());
+                  pushItemToCloud('alertLogs', log);
                 }}
-                onNavigate={(next) => setScreen(next)}
+                onNavigate={navigateTo}
                 onCalendarEventAdded={async () => {
                   if (googleAuth.status === 'connected') {
                     const events = await fetchUpcomingCalendarEvents(settings.googleClientId, 14);
                     await handleReplaceCalendarEvents(events);
                   }
+                }}
+                onRunHourlyUpdate={() => {
+                  unlockAudio();
+                  void runHourlyUpdate({ manual: true });
                 }}
               />
             )}
@@ -630,13 +1213,18 @@ export default function App() {
                 calendarEvents={calendarEvents}
                 onConnectGoogle={googleAuth.connect}
                 onReconnectGoogle={googleAuth.reconnect}
+                onSwitchGoogleAccount={googleAuth.switchAccount}
                 onDisconnectGoogle={googleAuth.disconnect}
-                onNavigate={(next) => setScreen(next)}
+                onNavigate={navigateTo}
                 onReplaceEmails={async (items) => {
                   setEmailSummaries(items);
                   await dbStorage.replaceEmailSummaries(items);
+                  recordActivity('Synced Gmail inbox', `${items.length} emails`, 'google');
                 }}
-                onReplaceCalendarEvents={handleReplaceCalendarEvents}
+                onReplaceCalendarEvents={async (events) => {
+                  await handleReplaceCalendarEvents(events);
+                  recordActivity('Synced Google Calendar', `${events.length} events`, 'google');
+                }}
               />
             )}
 
@@ -649,10 +1237,13 @@ export default function App() {
                 onSaveMessage={async (msg) => {
                   await dbStorage.saveBusinessMessage(msg);
                   setBusinessMessages(await dbStorage.listBusinessMessages());
+                  pushItemToCloud('businessMessages', msg);
+                  recordActivity('Saved business message', msg.senderLabel, 'business_inbox');
                 }}
                 onDeleteMessage={async (id) => {
                   await dbStorage.deleteBusinessMessage(id);
                   setBusinessMessages(await dbStorage.listBusinessMessages());
+                  deleteItemFromCloud('businessMessages', id);
                 }}
               />
             )}
@@ -664,10 +1255,14 @@ export default function App() {
                 onSaveDocument={async (doc) => {
                   await dbStorage.saveDocument(doc);
                   setDocuments(await dbStorage.listDocuments());
+                  pushItemToCloud('documents', doc);
+                  recordActivity('Updated document', doc.name, 'documents');
                 }}
                 onDeleteDocument={async (id) => {
                   await dbStorage.deleteDocument(id);
                   setDocuments(await dbStorage.listDocuments());
+                  deleteItemFromCloud('documents', id);
+                  recordActivity('Deleted document', '', 'documents');
                 }}
               />
             )}
@@ -685,6 +1280,8 @@ export default function App() {
                 onSaveBriefing={async (b) => {
                   await dbStorage.saveBriefing(b);
                   setBriefings(await dbStorage.listBriefings());
+                  pushItemToCloud('briefings', b);
+                  recordActivity('Generated briefing', b.dateStr, 'briefing');
                 }}
               />
             )}
@@ -692,12 +1289,19 @@ export default function App() {
             {screen === 'settings' && (
               <SettingsScreen
                 settings={settings}
+                cloudUser={cloudUser}
+                syncStatus={syncStatus}
+                syncError={syncError}
+                cloudAuthBusy={cloudAuthBusy}
+                onChooseCloudAccount={() => void handleChooseCloudAccount()}
+                onSignOutCloudAccount={() => void handleSignOutCloudAccount()}
                 googleStatus={googleAuth.status}
                 remainingSeconds={googleAuth.remainingSeconds}
                 isConnecting={googleAuth.isConnecting}
                 authError={googleAuth.authError}
                 onConnectGoogle={googleAuth.connect}
                 onReconnectGoogle={googleAuth.reconnect}
+                onSwitchGoogleAccount={googleAuth.switchAccount}
                 onDisconnectGoogle={googleAuth.disconnect}
                 onUpdateSettings={handleUpdateSettings}
                 onLockNow={() => setUnlocked(false)}
@@ -733,7 +1337,7 @@ export default function App() {
                       setMoreOpen((v) => !v);
                     } else {
                       setMoreOpen(false);
-                      setScreen(item.id);
+                      navigateTo(item.id);
                     }
                   }}
                   className={`relative min-h-[48px] h-full flex flex-col items-center justify-center gap-1 transition ${
@@ -777,7 +1381,7 @@ export default function App() {
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      setScreen(item.id);
+                      navigateTo(item.id);
                       setMoreOpen(false);
                     }}
                     className={`w-full min-h-[52px] px-4 rounded-xl flex items-center gap-3 text-sm font-medium transition border ${

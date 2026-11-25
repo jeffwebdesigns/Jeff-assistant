@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   Bell,
@@ -11,20 +12,28 @@ import {
   Newspaper,
   RefreshCw,
   Send,
+  Smartphone,
   Sparkles,
+  Volume2,
 } from 'lucide-react';
 import type {
+  ActivityEventItem,
   BriefingItem,
   CatchUpItem,
+  HourlyReportItem,
   MachineSettings,
   NoteItem,
   ReminderItem,
   ScreenId,
   TaskItem,
 } from '../types/machine';
+import type { User } from 'firebase/auth';
 import { getTranslations } from '../i18n/translations';
 import { formatNairobiDateTime, formatShortDateTime } from '../utils/datetime';
 import { useSpeech } from '../hooks/useSpeech';
+import type { DeviceTelemetry } from '../services/hourlyUpdateService';
+import type { SyncStatus } from '../services/realtimeSync';
+import { GoogleAccountControl } from './GoogleAccountButton';
 
 interface CommandCenterProps {
   settings: MachineSettings;
@@ -33,12 +42,22 @@ interface CommandCenterProps {
   notes: NoteItem[];
   briefings: BriefingItem[];
   catchUpItems: CatchUpItem[];
+  deviceTelemetry: DeviceTelemetry | null;
+  activityLogs: ActivityEventItem[];
+  hourlyReports: HourlyReportItem[];
   isThinking: boolean;
+  cloudUser: User | null;
+  syncStatus: SyncStatus;
+  syncError: string | null;
+  cloudAuthBusy: boolean;
+  onChooseCloudAccount: () => void;
+  onSignOutCloudAccount: () => void;
   onNavigate: (screen: ScreenId) => void;
   onQuickChat: (prompt: string) => void;
   onQuickParse: (text: string) => void;
   onToggleTaskStatus: (task: TaskItem) => void;
   onRunCatchUp: () => void;
+  onRunHourlyUpdate: () => void;
 }
 
 export const CommandCenter: React.FC<CommandCenterProps> = ({
@@ -48,12 +67,22 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   notes,
   briefings,
   catchUpItems,
+  deviceTelemetry,
+  activityLogs,
+  hourlyReports,
   isThinking,
+  cloudUser,
+  syncStatus,
+  syncError,
+  cloudAuthBusy,
+  onChooseCloudAccount,
+  onSignOutCloudAccount,
   onNavigate,
   onQuickChat,
   onQuickParse,
   onToggleTaskStatus,
   onRunCatchUp,
+  onRunHourlyUpdate,
 }) => {
   const t = getTranslations(settings.language);
   const [now, setNow] = useState(() => new Date());
@@ -80,6 +109,23 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
 
   const recentNotes = notes.slice(0, 4);
   const latestBriefing = briefings[0];
+  const latestHourly = hourlyReports[0];
+  const oneHourAgoMs = now.getTime() - 60 * 60 * 1000;
+  const actionsLastHour = activityLogs.filter((ev) => {
+    const ms = Date.parse(ev.timestamp);
+    return !Number.isNaN(ms) && ms >= oneHourAgoMs;
+  }).length;
+
+  let nextHourlyLabel = 'Auto-update paused';
+  if (settings.hourlyUpdatesEnabled !== false) {
+    const lastMs = settings.lastHourlyUpdateAt ? Date.parse(settings.lastHourlyUpdateAt) : NaN;
+    if (Number.isNaN(lastMs)) {
+      nextHourlyLabel = 'Next spoken update in 60m';
+    } else {
+      const remMins = Math.max(0, Math.ceil((lastMs + 60 * 60 * 1000 - now.getTime()) / 60000));
+      nextHourlyLabel = remMins === 0 ? 'Update due now' : `Next spoken update in ${remMins}m`;
+    }
+  }
 
   const hasCritical = catchUpItems.some(
     (item) => item.kind === 'calendar_clash' || item.kind === 'missed_reminder'
@@ -142,6 +188,16 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Google Account Chooser & Real-Time Cross-Device Sync */}
+      <GoogleAccountControl
+        user={cloudUser}
+        syncStatus={syncStatus}
+        syncError={syncError}
+        busy={cloudAuthBusy}
+        onChooseAccount={onChooseCloudAccount}
+        onSignOut={onSignOutCloudAccount}
+      />
+
       {/* Status Header + Pill Command Bar */}
       <section className="machine-card p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -181,9 +237,12 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
                   if (isListening) {
                     stopListening();
                   } else {
-                    startListening(settings.voiceInputLang, (transcript) => {
-                      setCommandInput(transcript);
-                    });
+                    startListening(
+                      settings.voiceInputLang === 'en-US' ? 'en-US' : 'en-KE',
+                      (transcript) => {
+                        setCommandInput(transcript);
+                      }
+                    );
                   }
                 }}
                 aria-label={isListening ? t.chat.micStop : t.chat.micStart}
@@ -311,6 +370,100 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             })}
           </ul>
         )}
+      </section>
+
+      {/* Logged-In Device & 1-Hour Activity Monitor */}
+      <section className="machine-card p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Smartphone strokeWidth={1.5} className="w-4 h-4 text-[var(--gold-500)]" />
+            <h2 className="section-title-gold text-sm font-semibold">
+              THIS DEVICE &amp; HOURLY MONITOR
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                unlockAudio();
+                onRunHourlyUpdate();
+              }}
+              className="min-h-[44px] px-3.5 machine-btn-secondary text-xs font-mono flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Volume2 strokeWidth={1.5} className="w-3.5 h-3.5 text-[var(--gold-500)]" />
+              <span>Update &amp; Speak Now</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('reminders')}
+              className="min-h-[44px] px-2.5 text-xs font-mono text-[var(--gold-300)] hover:text-[var(--gold-100)] flex items-center gap-1 transition whitespace-nowrap"
+            >
+              <span>History</span>
+              <ArrowRight strokeWidth={1.5} className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <hr className="machine-divider" />
+
+        {deviceTelemetry && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+            <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-3 py-2">
+              <span className="block font-mono text-[10px] uppercase text-[var(--text-muted)]">Device</span>
+              <span className="text-[var(--text)] font-medium truncate block mt-0.5">
+                {deviceTelemetry.deviceLabel}
+              </span>
+            </div>
+            <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-3 py-2">
+              <span className="block font-mono text-[10px] uppercase text-[var(--text-muted)]">Network</span>
+              <span className="text-[var(--text)] font-medium truncate block mt-0.5">
+                {deviceTelemetry.networkLabel}
+              </span>
+            </div>
+            <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-3 py-2">
+              <span className="block font-mono text-[10px] uppercase text-[var(--text-muted)]">Battery</span>
+              <span className="text-[var(--text)] font-medium truncate block mt-0.5">
+                {deviceTelemetry.batteryLabel}
+              </span>
+            </div>
+            <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-3 py-2">
+              <span className="block font-mono text-[10px] uppercase text-[var(--text-muted)]">Storage</span>
+              <span className="text-[var(--text)] font-medium truncate block mt-0.5">
+                {deviceTelemetry.storageLabel}
+              </span>
+            </div>
+            <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-3 py-2">
+              <span className="block font-mono text-[10px] uppercase text-[var(--text-muted)]">Google</span>
+              <span className="text-[var(--text)] font-medium truncate block mt-0.5">
+                {deviceTelemetry.googleLabel}
+              </span>
+            </div>
+            <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-3 py-2">
+              <span className="block font-mono text-[10px] uppercase text-[var(--text-muted)]">Last 1h Actions</span>
+              <span className="text-[var(--gold-300)] font-mono font-semibold block mt-0.5 tabular-nums">
+                {actionsLastHour} logged
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] p-3.5 space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+            <span className="text-[var(--gold-300)] flex items-center gap-1.5">
+              <Activity strokeWidth={1.5} className="w-3.5 h-3.5" />
+              {latestHourly
+                ? `Last hourly report: ${formatShortDateTime(latestHourly.timestamp, settings.timezone)}`
+                : 'No hourly report generated yet'}
+            </span>
+            <span className="text-[var(--text-muted)] tabular-nums">{nextHourlyLabel} · English only</span>
+          </div>
+          {latestHourly && (
+            <p className="text-sm text-[var(--text)] leading-relaxed">{latestHourly.spokenSummary}</p>
+          )}
+          <p className="text-[11px] text-[var(--text-muted)]">
+            Covers actions inside THE MACHINE, connected Google services, and browser telemetry on this device.
+          </p>
+        </div>
       </section>
 
       {/* 4 Summary Cards Grid */}

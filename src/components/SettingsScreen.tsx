@@ -14,7 +14,6 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   type MachineBackupPayload,
   type MachineSettings,
-  type UILanguage,
 } from '../types/machine';
 import { getTranslations } from '../i18n/translations';
 import { dbStorage, hashPin } from '../db/storage';
@@ -29,17 +28,27 @@ import {
   resolveGoogleClientId,
   type GoogleConnectionStatus,
 } from '../services/googleAuth';
+import type { User } from 'firebase/auth';
 import { formatBytes, formatShortDateTime } from '../utils/datetime';
+import type { SyncStatus } from '../services/realtimeSync';
 import { GoldToggle } from './GoldToggle';
+import { GoogleAccountControl } from './GoogleAccountButton';
 
 interface SettingsScreenProps {
   settings: MachineSettings;
+  cloudUser: User | null;
+  syncStatus: SyncStatus;
+  syncError: string | null;
+  cloudAuthBusy: boolean;
+  onChooseCloudAccount: () => void;
+  onSignOutCloudAccount: () => void;
   googleStatus: GoogleConnectionStatus;
   remainingSeconds: number;
   isConnecting: boolean;
   authError: string | null;
   onConnectGoogle: () => Promise<void>;
   onReconnectGoogle: () => Promise<void>;
+  onSwitchGoogleAccount: () => Promise<void>;
   onDisconnectGoogle: () => Promise<void>;
   onUpdateSettings: (next: MachineSettings) => Promise<void>;
   onLockNow: () => void;
@@ -48,12 +57,19 @@ interface SettingsScreenProps {
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
+  cloudUser,
+  syncStatus,
+  syncError,
+  cloudAuthBusy,
+  onChooseCloudAccount,
+  onSignOutCloudAccount,
   googleStatus,
   remainingSeconds,
   isConnecting,
   authError,
   onConnectGoogle,
   onReconnectGoogle,
+  onSwitchGoogleAccount,
   onDisconnectGoogle,
   onUpdateSettings,
   onLockNow,
@@ -65,19 +81,41 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const [tab, setTab] = useState<'general' | 'google' | 'security'>('general');
   const [displayName, setDisplayName] = useState(settings.displayName);
-  const [language, setLanguage] = useState<UILanguage>(settings.language);
   const [timezone, setTimezone] = useState(settings.timezone);
   const [systemPrompt, setSystemPrompt] = useState(settings.systemPrompt);
   const [voiceRate, setVoiceRate] = useState(settings.voiceRate);
   const [voiceURI, setVoiceURI] = useState(settings.voiceURI);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(settings.voiceOutputEnabled);
-  const [voiceInputLang, setVoiceInputLang] = useState(settings.voiceInputLang);
+  const [voiceInputLang, setVoiceInputLang] = useState<'en-KE' | 'en-US'>(
+    settings.voiceInputLang === 'en-US' ? 'en-US' : 'en-KE'
+  );
+  const [hourlyUpdatesEnabled, setHourlyUpdatesEnabled] = useState(
+    settings.hourlyUpdatesEnabled !== false
+  );
+  const [hourlySpeakEnabled, setHourlySpeakEnabled] = useState(
+    settings.hourlySpeakEnabled !== false
+  );
   const [pureOledBlack, setPureOledBlack] = useState(Boolean(settings.pureOledBlack));
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
+  const englishVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
 
   // Google Client ID override & Drive backup state
   const [customClientId, setCustomClientId] = useState(settings.googleClientId ?? '');
   const [originCopied, setOriginCopied] = useState(false);
+
+  React.useEffect(() => {
+    setDisplayName(settings.displayName);
+    setTimezone(settings.timezone);
+    setSystemPrompt(settings.systemPrompt);
+    setVoiceRate(settings.voiceRate);
+    setVoiceURI(settings.voiceURI);
+    setVoiceOutputEnabled(settings.voiceOutputEnabled);
+    setVoiceInputLang(settings.voiceInputLang === 'en-US' ? 'en-US' : 'en-KE');
+    setHourlyUpdatesEnabled(settings.hourlyUpdatesEnabled !== false);
+    setHourlySpeakEnabled(settings.hourlySpeakEnabled !== false);
+    setPureOledBlack(Boolean(settings.pureOledBlack));
+    setCustomClientId(settings.googleClientId ?? '');
+  }, [settings]);
   const [driveBusy, setDriveBusy] = useState(false);
   const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
@@ -103,13 +141,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     const next: MachineSettings = {
       ...settings,
       displayName: displayName.trim() || 'Owner',
-      language,
+      language: 'en',
       timezone: timezone.trim() || 'Africa/Nairobi',
       systemPrompt: systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT,
       voiceRate,
       voiceURI,
       voiceOutputEnabled,
       voiceInputLang,
+      hourlyUpdatesEnabled,
+      hourlySpeakEnabled,
       pureOledBlack,
     };
     await onUpdateSettings(next);
@@ -256,6 +296,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   return (
     <div className="space-y-5">
+      <GoogleAccountControl
+        user={cloudUser}
+        syncStatus={syncStatus}
+        syncError={syncError}
+        busy={cloudAuthBusy}
+        onChooseAccount={onChooseCloudAccount}
+        onSignOut={onSignOutCloudAccount}
+      />
+
       {/* Sub-navigation Tabs */}
       <div className="flex items-center gap-1 p-1 bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-x-auto">
         <button
@@ -318,14 +367,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">{t.settings.language}</label>
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as UILanguage)}
-                className="w-full min-h-[44px] machine-input px-3.5 text-sm"
-              >
-                <option value="en">English</option>
-                <option value="sw">Kiswahili</option>
-              </select>
+              <input
+                type="text"
+                readOnly
+                value="English (Strictly English)"
+                className="w-full min-h-[44px] machine-input px-3.5 text-sm font-mono text-[var(--gold-300)]"
+              />
             </div>
 
             <div>
@@ -379,12 +426,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <label className="block text-xs text-[var(--text-muted)] mb-1">{t.settings.voiceInputLang}</label>
                 <select
                   value={voiceInputLang}
-                  onChange={(e) => setVoiceInputLang(e.target.value as 'en-KE' | 'en-US' | 'sw-KE')}
+                  onChange={(e) => setVoiceInputLang(e.target.value as 'en-KE' | 'en-US')}
                   className="w-full min-h-[44px] machine-input px-3.5 text-sm"
                 >
                   <option value="en-KE">English (Kenya · en-KE)</option>
                   <option value="en-US">English (US · en-US)</option>
-                  <option value="sw-KE">Kiswahili (Kenya · sw-KE)</option>
                 </select>
               </div>
 
@@ -415,8 +461,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     onChange={(e) => setVoiceURI(e.target.value)}
                     className="w-full min-h-[44px] machine-input px-3.5 text-sm"
                   >
-                    <option value="">THE MACHINE Neural Voice (EN / SW)</option>
-                    {voices.map((v) => (
+                    <option value="">THE MACHINE Neural Voice (English only)</option>
+                    {englishVoices.map((v) => (
                       <option key={v.voiceURI} value={v.voiceURI}>
                         {v.name} ({v.lang})
                       </option>
@@ -425,11 +471,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex-1 min-w-[220px]">
+                  <div className="flex-1 min-w-[220px] space-y-1">
                     <GoldToggle
                       checked={voiceOutputEnabled}
                       onChange={(next) => setVoiceOutputEnabled(next)}
                       label={t.settings.voiceAutoRead}
+                    />
+                    <GoldToggle
+                      checked={hourlyUpdatesEnabled}
+                      onChange={(next) => setHourlyUpdatesEnabled(next)}
+                      label="Hourly device & activity updates (every 1 hour)"
+                    />
+                    <GoldToggle
+                      checked={hourlySpeakEnabled}
+                      onChange={(next) => setHourlySpeakEnabled(next)}
+                      label="Speak hourly updates aloud in English"
                     />
                   </div>
 
@@ -440,14 +496,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       if (isSpeaking) {
                         stopSpeaking();
                       } else {
-                        const sample =
-                          language === 'sw'
-                            ? 'Hujambo. Mfumo uko tayari. Unaweza kuniuliza swali lolote.'
-                            : 'Systems nominal. I am listening and ready to answer any question.';
-                        speak(sample, {
+                        speak('Systems nominal. I speak strictly in English and update you every hour.', {
                           rate: voiceRate,
                           voiceURI,
-                          langHint: language,
+                          langHint: 'en',
                         });
                       }
                     }}
@@ -518,13 +570,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </button>
                 )}
                 {googleStatus === 'connected' && (
-                  <button
-                    type="button"
-                    onClick={() => void onDisconnectGoogle()}
-                    className="min-h-[44px] px-4 machine-btn-secondary text-xs"
-                  >
-                    {t.google.disconnectBtn}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      disabled={isConnecting}
+                      onClick={() => void onSwitchGoogleAccount()}
+                      className="min-h-[44px] px-4 machine-btn-secondary text-xs"
+                    >
+                      {isConnecting ? 'Switching...' : 'Switch Google Account'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onDisconnectGoogle()}
+                      className="min-h-[44px] px-4 machine-btn-ghost text-xs"
+                    >
+                      {t.google.disconnectBtn}
+                    </button>
+                  </>
                 )}
               </div>
 

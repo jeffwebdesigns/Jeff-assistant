@@ -1,0 +1,555 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Hardened Primitives
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidIsoStr(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isOptionalStr(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptionalBool(data, key) {
+      return !(key in data) || data[key] is bool;
+    }
+
+    function isStringList(arr, maxItems, maxItemLen) {
+      return arr is list &&
+        arr.size() <= maxItems &&
+        (arr.size() == 0 || (arr[0] is string && arr[0].size() <= maxItemLen));
+    }
+
+    // Pillar 1: Master Gate - subcollections derive membership/ownership from /users/{userId}
+    function hasWorkspaceAccess(userId) {
+      return isOwner(userId) &&
+        exists(/databases/$(database)/documents/users/$(userId)) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.ownerId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------------
+    // Validation Blueprints (Anti-Update-Gap)
+    // -------------------------------------------------------------------------
+    function isValidUserWorkspace(data, userId) {
+      return data.keys().hasAll(['ownerId', 'displayName', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerId', 'displayName', 'photoURL', 'createdAt', 'syncedAt']) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 &&
+        data.displayName.size() <= 120 &&
+        isOptionalStr(data, 'photoURL', 1024) &&
+        data.createdAt is timestamp &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidPrivateProfile(data, userId) {
+      return data.keys().hasAll(['ownerId', 'email', 'displayName', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerId', 'email', 'displayName', 'photoURL', 'createdAt', 'syncedAt']) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.email is string &&
+        data.email.size() >= 3 &&
+        data.email.size() <= 320 &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 &&
+        data.displayName.size() <= 120 &&
+        isOptionalStr(data, 'photoURL', 1024) &&
+        data.createdAt is timestamp &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidAlertCategories(cats) {
+      return cats is map &&
+        cats.keys().hasAll(['meeting', 'errand', 'finance', 'health', 'general']) &&
+        cats.keys().hasOnly(['meeting', 'errand', 'finance', 'health', 'general']) &&
+        cats.meeting is bool &&
+        cats.errand is bool &&
+        cats.finance is bool &&
+        cats.health is bool &&
+        cats.general is bool;
+    }
+
+    function isValidUserSettings(data, userId, settingId) {
+      return settingId == 'owner_settings' &&
+        data.keys().hasAll([
+          'id', 'ownerId', 'displayName', 'language', 'timezone', 'currency',
+          'systemPrompt', 'voiceOutputEnabled', 'voiceInputLang', 'voiceRate',
+          'voiceURI', 'quietHoursEnabled', 'quietHoursStart', 'quietHoursEnd',
+          'alertCategories', 'syncedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'displayName', 'language', 'timezone', 'currency',
+          'systemPrompt', 'voiceOutputEnabled', 'voiceInputLang', 'voiceRate',
+          'voiceURI', 'quietHoursEnabled', 'quietHoursStart', 'quietHoursEnd',
+          'alertCategories', 'googleClientId', 'lastDriveBackupAt',
+          'lastOverdueNudgeDate', 'voiceDefaultUpgraded', 'pureOledBlack',
+          'englishOnlyUpgraded', 'hourlyUpdatesEnabled', 'hourlySpeakEnabled',
+          'lastHourlyUpdateAt', 'syncedAt'
+        ]) &&
+        data.id == 'owner_settings' &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.language in ['en', 'sw'] &&
+        data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 80 &&
+        data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 16 &&
+        data.systemPrompt is string && data.systemPrompt.size() >= 1 && data.systemPrompt.size() <= 6000 &&
+        data.voiceOutputEnabled is bool &&
+        data.voiceInputLang in ['en-KE', 'en-US', 'sw-KE'] &&
+        data.voiceRate is number && data.voiceRate >= 0.5 && data.voiceRate <= 2.0 &&
+        data.voiceURI is string && data.voiceURI.size() <= 300 &&
+        data.quietHoursEnabled is bool &&
+        data.quietHoursStart is string && data.quietHoursStart.size() <= 10 &&
+        data.quietHoursEnd is string && data.quietHoursEnd.size() <= 10 &&
+        isValidAlertCategories(data.alertCategories) &&
+        isOptionalStr(data, 'googleClientId', 200) &&
+        isOptionalStr(data, 'lastDriveBackupAt', 64) &&
+        isOptionalStr(data, 'lastOverdueNudgeDate', 64) &&
+        isOptionalBool(data, 'voiceDefaultUpgraded') &&
+        isOptionalBool(data, 'pureOledBlack') &&
+        isOptionalBool(data, 'englishOnlyUpgraded') &&
+        isOptionalBool(data, 'hourlyUpdatesEnabled') &&
+        isOptionalBool(data, 'hourlySpeakEnabled') &&
+        isOptionalStr(data, 'lastHourlyUpdateAt', 64) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidNote(data, userId, noteId) {
+      return isValidId(noteId) &&
+        data.keys().hasAll(['id', 'ownerId', 'title', 'content', 'tags', 'createdAt', 'updatedAt', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'title', 'content', 'tags', 'createdAt', 'updatedAt', 'syncedAt']) &&
+        data.id == noteId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+        data.content is string && data.content.size() <= 50000 &&
+        isStringList(data.tags, 30, 64) &&
+        isValidIsoStr(data.createdAt, 64) &&
+        isValidIsoStr(data.updatedAt, 64) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidTask(data, userId, taskId) {
+      return isValidId(taskId) &&
+        data.keys().hasAll(['id', 'ownerId', 'title', 'priority', 'status', 'tags', 'createdAt', 'updatedAt', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'title', 'notes', 'dueDate', 'priority', 'status', 'tags', 'createdAt', 'updatedAt', 'syncedAt']) &&
+        data.id == taskId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+        isOptionalStr(data, 'notes', 10000) &&
+        isOptionalStr(data, 'dueDate', 32) &&
+        data.priority in ['low', 'medium', 'high'] &&
+        data.status in ['todo', 'in_progress', 'done'] &&
+        isStringList(data.tags, 30, 64) &&
+        isValidIsoStr(data.createdAt, 64) &&
+        isValidIsoStr(data.updatedAt, 64) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidReminder(data, userId, reminderId) {
+      return isValidId(reminderId) &&
+        data.keys().hasAll(['id', 'ownerId', 'title', 'dueAt', 'category', 'isMeeting', 'completed', 'firedKeys', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'title', 'dueAt', 'category', 'isMeeting', 'completed', 'firedKeys', 'createdAt', 'source', 'externalEventId', 'syncedAt']) &&
+        data.id == reminderId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+        isValidIsoStr(data.dueAt, 64) &&
+        data.category in ['meeting', 'errand', 'finance', 'health', 'general'] &&
+        data.isMeeting is bool &&
+        data.completed is bool &&
+        isStringList(data.firedKeys, 20, 64) &&
+        isValidIsoStr(data.createdAt, 64) &&
+        (!('source' in data) || data.source in ['local', 'google_calendar']) &&
+        isOptionalStr(data, 'externalEventId', 256) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidChatMessage(data, userId, chatId) {
+      return isValidId(chatId) &&
+        data.keys().hasAll(['id', 'ownerId', 'role', 'content', 'timestamp', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'role', 'content', 'timestamp', 'error', 'retryPayload', 'sources', 'syncedAt']) &&
+        data.id == chatId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.role in ['user', 'assistant'] &&
+        data.content is string && data.content.size() <= 60000 &&
+        isValidIsoStr(data.timestamp, 64) &&
+        isOptionalBool(data, 'error') &&
+        isOptionalStr(data, 'retryPayload', 10000) &&
+        (!('sources' in data) || (data.sources is list && data.sources.size() <= 20 && (data.sources.size() == 0 || data.sources[0] is map))) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidDocumentRecord(data, userId, docId) {
+      return isValidId(docId) &&
+        data.keys().hasAll(['id', 'ownerId', 'name', 'fileType', 'sizeBytes', 'extractedText', 'qaHistory', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'name', 'fileType', 'sizeBytes', 'extractedText', 'summary', 'keyPoints', 'qaHistory', 'createdAt', 'syncedAt']) &&
+        data.id == docId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 300 &&
+        data.fileType in ['pdf', 'txt', 'docx'] &&
+        data.sizeBytes is number && data.sizeBytes >= 0 && data.sizeBytes <= 52428800 &&
+        data.extractedText is string && data.extractedText.size() <= 300000 &&
+        isOptionalStr(data, 'summary', 20000) &&
+        (!('keyPoints' in data) || isStringList(data.keyPoints, 30, 1000)) &&
+        data.qaHistory is list && data.qaHistory.size() <= 100 && (data.qaHistory.size() == 0 || data.qaHistory[0] is map) &&
+        isValidIsoStr(data.createdAt, 64) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidBriefing(data, userId, briefingId) {
+      return isValidId(briefingId) &&
+        data.keys().hasAll(['id', 'ownerId', 'dateStr', 'content', 'createdAt', 'taskCount', 'reminderCount', 'noteCount', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'dateStr', 'content', 'createdAt', 'taskCount', 'reminderCount', 'noteCount', 'syncedAt']) &&
+        data.id == briefingId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        isValidIsoStr(data.dateStr, 64) &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 30000 &&
+        isValidIsoStr(data.createdAt, 64) &&
+        data.taskCount is number && data.taskCount >= 0 &&
+        data.reminderCount is number && data.reminderCount >= 0 &&
+        data.noteCount is number && data.noteCount >= 0 &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidActivityEvent(data, userId, activityId) {
+      return isValidId(activityId) &&
+        data.keys().hasAll(['id', 'ownerId', 'action', 'detail', 'screen', 'timestamp', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'action', 'detail', 'screen', 'timestamp', 'deviceLabel', 'syncedAt']) &&
+        data.id == activityId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 120 &&
+        data.detail is string && data.detail.size() <= 300 &&
+        data.screen in ['command', 'chat', 'notes_tasks', 'reminders', 'google', 'business_inbox', 'documents', 'briefing', 'settings'] &&
+        isValidIsoStr(data.timestamp, 64) &&
+        isOptionalStr(data, 'deviceLabel', 120) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidHourlyReport(data, userId, reportId) {
+      return isValidId(reportId) &&
+        data.keys().hasAll(['id', 'ownerId', 'timestamp', 'summary', 'spokenSummary', 'deviceSnapshot', 'activityCount', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'timestamp', 'summary', 'spokenSummary', 'deviceSnapshot', 'activityCount', 'syncedAt']) &&
+        data.id == reportId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        isValidIsoStr(data.timestamp, 64) &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 10000 &&
+        data.spokenSummary is string && data.spokenSummary.size() >= 1 && data.spokenSummary.size() <= 3000 &&
+        data.deviceSnapshot is string && data.deviceSnapshot.size() <= 500 &&
+        data.activityCount is number && data.activityCount >= 0 &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidBusinessMessage(data, userId, messageId) {
+      return isValidId(messageId) &&
+        data.keys().hasAll(['id', 'ownerId', 'channel', 'senderLabel', 'rawText', 'summary', 'urgency', 'detectedLanguage', 'draftReply', 'status', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'channel', 'senderLabel', 'rawText', 'summary', 'urgency', 'detectedLanguage', 'draftReply', 'status', 'createdAt', 'syncedAt']) &&
+        data.id == messageId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.channel in ['whatsapp', 'facebook', 'instagram'] &&
+        data.senderLabel is string && data.senderLabel.size() >= 1 && data.senderLabel.size() <= 200 &&
+        data.rawText is string && data.rawText.size() >= 1 && data.rawText.size() <= 15000 &&
+        data.summary is string && data.summary.size() <= 4000 &&
+        data.urgency in ['high', 'medium', 'low'] &&
+        data.detectedLanguage is string && data.detectedLanguage.size() <= 32 &&
+        data.draftReply is string && data.draftReply.size() <= 10000 &&
+        data.status in ['new', 'replied', 'archived'] &&
+        isValidIsoStr(data.createdAt, 64) &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidAlertLog(data, userId, logId) {
+      return isValidId(logId) &&
+        data.keys().hasAll(['id', 'ownerId', 'reminderId', 'title', 'triggerType', 'firedAt', 'channel', 'syncedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'reminderId', 'title', 'triggerType', 'firedAt', 'channel', 'syncedAt']) &&
+        data.id == logId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.reminderId is string && data.reminderId.size() >= 1 && data.reminderId.size() <= 128 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+        data.triggerType in ['due', '1d_before', '1h_before', '10m_before', 'overdue_task', 'hourly_update', 'test'] &&
+        isValidIsoStr(data.firedAt, 64) &&
+        data.channel in ['sw', 'notification', 'in_app'] &&
+        data.syncedAt is timestamp &&
+        data.syncedAt == request.time;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Match Blocks
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserWorkspace(incoming(), userId) &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserWorkspace(incoming(), userId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'syncedAt']);
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      // Isolated PII Profile (strict owner-only read & write)
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && docId == 'profile' && isOwner(userId);
+        allow list: if false;
+        allow create: if isValidId(userId) &&
+          isValidId(docId) &&
+          docId == 'profile' &&
+          hasWorkspaceAccess(userId) &&
+          isValidPrivateProfile(incoming(), userId) &&
+          incoming().createdAt == request.time;
+        allow update: if isValidId(userId) &&
+          isValidId(docId) &&
+          docId == 'profile' &&
+          hasWorkspaceAccess(userId) &&
+          isValidPrivateProfile(incoming(), userId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'photoURL', 'syncedAt']);
+        allow delete: if isValidId(userId) && isValidId(docId) && docId == 'profile' && isOwner(userId);
+      }
+
+      // Synced User Settings
+      match /settings/{settingId} {
+        allow get: if isValidId(userId) && isValidId(settingId) && settingId == 'owner_settings' && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) &&
+          isValidId(settingId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidUserSettings(incoming(), userId, settingId);
+        allow update: if isValidId(userId) &&
+          isValidId(settingId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidUserSettings(incoming(), userId, settingId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'language', 'timezone', 'currency', 'systemPrompt',
+            'voiceOutputEnabled', 'voiceInputLang', 'voiceRate', 'voiceURI',
+            'quietHoursEnabled', 'quietHoursStart', 'quietHoursEnd', 'alertCategories',
+            'googleClientId', 'lastDriveBackupAt', 'lastOverdueNudgeDate',
+            'voiceDefaultUpgraded', 'pureOledBlack', 'englishOnlyUpgraded',
+            'hourlyUpdatesEnabled', 'hourlySpeakEnabled', 'lastHourlyUpdateAt', 'syncedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(settingId) && isOwner(userId);
+      }
+
+      // Notes
+      match /notes/{noteId} {
+        allow get: if isValidId(userId) && isValidId(noteId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(noteId) && hasWorkspaceAccess(userId) && isValidNote(incoming(), userId, noteId);
+        allow update: if isValidId(userId) &&
+          isValidId(noteId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidNote(incoming(), userId, noteId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'tags', 'updatedAt', 'syncedAt']);
+        allow delete: if isValidId(userId) && isValidId(noteId) && hasWorkspaceAccess(userId);
+      }
+
+      // Tasks
+      match /tasks/{taskId} {
+        allow get: if isValidId(userId) && isValidId(taskId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(taskId) && hasWorkspaceAccess(userId) && isValidTask(incoming(), userId, taskId);
+        allow update: if isValidId(userId) &&
+          isValidId(taskId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidTask(incoming(), userId, taskId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'syncedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'notes', 'dueDate', 'priority', 'status', 'tags', 'updatedAt', 'syncedAt'])
+          );
+        allow delete: if isValidId(userId) && isValidId(taskId) && hasWorkspaceAccess(userId);
+      }
+
+      // Reminders
+      match /reminders/{reminderId} {
+        allow get: if isValidId(userId) && isValidId(reminderId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(reminderId) && hasWorkspaceAccess(userId) && isValidReminder(incoming(), userId, reminderId);
+        allow update: if isValidId(userId) &&
+          isValidId(reminderId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidReminder(incoming(), userId, reminderId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'firedKeys', 'syncedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'dueAt', 'category', 'isMeeting', 'completed', 'firedKeys', 'source', 'externalEventId', 'syncedAt'])
+          );
+        allow delete: if isValidId(userId) && isValidId(reminderId) && hasWorkspaceAccess(userId);
+      }
+
+      // AI Chat Messages
+      match /chats/{chatId} {
+        allow get: if isValidId(userId) && isValidId(chatId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(chatId) && hasWorkspaceAccess(userId) && isValidChatMessage(incoming(), userId, chatId);
+        allow update: if isValidId(userId) &&
+          isValidId(chatId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidChatMessage(incoming(), userId, chatId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().role == existing().role &&
+          incoming().timestamp == existing().timestamp &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['content', 'error', 'retryPayload', 'sources', 'syncedAt']);
+        allow delete: if isValidId(userId) && isValidId(chatId) && hasWorkspaceAccess(userId);
+      }
+
+      // Documents
+      match /documents/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(docId) && hasWorkspaceAccess(userId) && isValidDocumentRecord(incoming(), userId, docId);
+        allow update: if isValidId(userId) &&
+          isValidId(docId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidDocumentRecord(incoming(), userId, docId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['summary', 'keyPoints', 'qaHistory', 'syncedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fileType', 'sizeBytes', 'extractedText', 'summary', 'keyPoints', 'qaHistory', 'syncedAt'])
+          );
+        allow delete: if isValidId(userId) && isValidId(docId) && hasWorkspaceAccess(userId);
+      }
+
+      // Daily Briefings
+      match /briefings/{briefingId} {
+        allow get: if isValidId(userId) && isValidId(briefingId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(briefingId) && hasWorkspaceAccess(userId) && isValidBriefing(incoming(), userId, briefingId);
+        allow update: if isValidId(userId) &&
+          isValidId(briefingId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidBriefing(incoming(), userId, briefingId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['dateStr', 'content', 'taskCount', 'reminderCount', 'noteCount', 'syncedAt']);
+        allow delete: if isValidId(userId) && isValidId(briefingId) && hasWorkspaceAccess(userId);
+      }
+
+      // Activity Logs
+      match /activityLogs/{activityId} {
+        allow get: if isValidId(userId) && isValidId(activityId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(activityId) && hasWorkspaceAccess(userId) && isValidActivityEvent(incoming(), userId, activityId);
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(activityId) && hasWorkspaceAccess(userId);
+      }
+
+      // Hourly Reports
+      match /hourlyReports/{reportId} {
+        allow get: if isValidId(userId) && isValidId(reportId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(reportId) && hasWorkspaceAccess(userId) && isValidHourlyReport(incoming(), userId, reportId);
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(reportId) && hasWorkspaceAccess(userId);
+      }
+
+      // Business Inbox Messages
+      match /businessMessages/{messageId} {
+        allow get: if isValidId(userId) && isValidId(messageId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(messageId) && hasWorkspaceAccess(userId) && isValidBusinessMessage(incoming(), userId, messageId);
+        allow update: if isValidId(userId) &&
+          isValidId(messageId) &&
+          hasWorkspaceAccess(userId) &&
+          isValidBusinessMessage(incoming(), userId, messageId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'syncedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['channel', 'senderLabel', 'rawText', 'summary', 'urgency', 'detectedLanguage', 'draftReply', 'status', 'syncedAt'])
+          );
+        allow delete: if isValidId(userId) && isValidId(messageId) && hasWorkspaceAccess(userId);
+      }
+
+      // Alert Logs
+      match /alertLogs/{logId} {
+        allow get: if isValidId(userId) && isValidId(logId) && hasWorkspaceAccess(userId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(logId) && hasWorkspaceAccess(userId) && isValidAlertLog(incoming(), userId, logId);
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(logId) && hasWorkspaceAccess(userId);
+      }
+    }
+  }
+}

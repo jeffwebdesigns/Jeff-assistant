@@ -1,0 +1,405 @@
+{
+  "entities": {
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Root workspace metadata for a signed-in user (no PII)",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "displayName", "createdAt", "syncedAt"]
+    },
+    "UserPrivateProfile": {
+      "title": "UserPrivateProfile",
+      "description": "Isolated private PII profile document for the authenticated owner",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 320
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "email", "displayName", "createdAt", "syncedAt"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Cross-device synced preferences and assistant settings (PIN secrets stay device-local)",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": ["owner_settings"]
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "sw"]
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "systemPrompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 6000
+        },
+        "voiceOutputEnabled": { "type": "boolean" },
+        "voiceInputLang": {
+          "type": "string",
+          "enum": ["en-KE", "en-US", "sw-KE"]
+        },
+        "voiceRate": { "type": "number" },
+        "voiceURI": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "quietHoursEnabled": { "type": "boolean" },
+        "quietHoursStart": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "quietHoursEnd": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "alertCategories": { "type": "object" },
+        "googleClientId": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "lastDriveBackupAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "lastOverdueNudgeDate": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "voiceDefaultUpgraded": { "type": "boolean" },
+        "pureOledBlack": { "type": "boolean" },
+        "englishOnlyUpgraded": { "type": "boolean" },
+        "hourlyUpdatesEnabled": { "type": "boolean" },
+        "hourlySpeakEnabled": { "type": "boolean" },
+        "lastHourlyUpdateAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "displayName",
+        "language",
+        "timezone",
+        "currency",
+        "systemPrompt",
+        "voiceOutputEnabled",
+        "voiceInputLang",
+        "voiceRate",
+        "voiceURI",
+        "quietHoursEnabled",
+        "quietHoursStart",
+        "quietHoursEnd",
+        "alertCategories",
+        "syncedAt"
+      ]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "User note synchronized across logged-in devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "content": { "type": "string", "maxLength": 50000 },
+        "tags": { "type": "array" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "updatedAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "content", "tags", "createdAt", "updatedAt", "syncedAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Action item / task synchronized across logged-in devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "notes": { "type": "string", "maxLength": 10000 },
+        "dueDate": { "type": "string", "maxLength": 32 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["todo", "in_progress", "done"] },
+        "tags": { "type": "array" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "updatedAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "priority", "status", "tags", "createdAt", "updatedAt", "syncedAt"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Reminder or mirrored calendar alert synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "dueAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "category": { "type": "string", "enum": ["meeting", "errand", "finance", "health", "general"] },
+        "isMeeting": { "type": "boolean" },
+        "completed": { "type": "boolean" },
+        "firedKeys": { "type": "array" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "source": { "type": "string", "enum": ["local", "google_calendar"] },
+        "externalEventId": { "type": "string", "maxLength": 256 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "dueAt", "category", "isMeeting", "completed", "firedKeys", "createdAt", "syncedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "AI Chat message turn synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "content": { "type": "string", "maxLength": 60000 },
+        "timestamp": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "error": { "type": "boolean" },
+        "retryPayload": { "type": "string", "maxLength": 10000 },
+        "sources": { "type": "array" },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "role", "content", "timestamp", "syncedAt"]
+    },
+    "DocumentRecord": {
+      "title": "DocumentRecord",
+      "description": "Parsed text document, summary, and Q&A history synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "fileType": { "type": "string", "enum": ["pdf", "txt", "docx"] },
+        "sizeBytes": { "type": "number" },
+        "extractedText": { "type": "string", "maxLength": 300000 },
+        "summary": { "type": "string", "maxLength": 20000 },
+        "keyPoints": { "type": "array" },
+        "qaHistory": { "type": "array" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "fileType", "sizeBytes", "extractedText", "qaHistory", "createdAt", "syncedAt"]
+    },
+    "Briefing": {
+      "title": "Briefing",
+      "description": "Daily briefing summary synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "dateStr": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 30000 },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "taskCount": { "type": "number" },
+        "reminderCount": { "type": "number" },
+        "noteCount": { "type": "number" },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "dateStr", "content", "createdAt", "taskCount", "reminderCount", "noteCount", "syncedAt"]
+    },
+    "ActivityEvent": {
+      "title": "ActivityEvent",
+      "description": "User action log synchronized across logged-in devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "detail": { "type": "string", "maxLength": 300 },
+        "screen": { "type": "string", "enum": ["command", "chat", "notes_tasks", "reminders", "google", "business_inbox", "documents", "briefing", "settings"] },
+        "timestamp": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "deviceLabel": { "type": "string", "maxLength": 120 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "action", "detail", "screen", "timestamp", "syncedAt"]
+    },
+    "HourlyReport": {
+      "title": "HourlyReport",
+      "description": "Hourly device & activity update synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestamp": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "spokenSummary": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "deviceSnapshot": { "type": "string", "maxLength": 500 },
+        "activityCount": { "type": "number" },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "timestamp", "summary", "spokenSummary", "deviceSnapshot", "activityCount", "syncedAt"]
+    },
+    "BusinessMessage": {
+      "title": "BusinessMessage",
+      "description": "Triaged WhatsApp/Instagram/Facebook business inbox item synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channel": { "type": "string", "enum": ["whatsapp", "facebook", "instagram"] },
+        "senderLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "rawText": { "type": "string", "minLength": 1, "maxLength": 15000 },
+        "summary": { "type": "string", "maxLength": 4000 },
+        "urgency": { "type": "string", "enum": ["high", "medium", "low"] },
+        "detectedLanguage": { "type": "string", "maxLength": 32 },
+        "draftReply": { "type": "string", "maxLength": 10000 },
+        "status": { "type": "string", "enum": ["new", "replied", "archived"] },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "channel", "senderLabel", "rawText", "summary", "urgency", "detectedLanguage", "draftReply", "status", "createdAt", "syncedAt"]
+    },
+    "AlertLog": {
+      "title": "AlertLog",
+      "description": "Alert delivery log synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reminderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "triggerType": { "type": "string", "enum": ["due", "1d_before", "1h_before", "10m_before", "overdue_task", "hourly_update", "test"] },
+        "firedAt": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "channel": { "type": "string", "enum": ["sw", "notification", "in_app"] },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "reminderId", "title", "triggerType", "firedAt", "channel", "syncedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserWorkspace" },
+      "description": "Root owner workspace document (non-PII parent for Master Gate checks)"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateProfile" },
+      "description": "Isolated PII document storing verified user email and profile"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/UserSettings" },
+      "description": "Synced user preferences and configuration"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/Note" },
+      "description": "User notes synchronized across devices"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "User tasks synchronized across devices"
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/Reminder" },
+      "description": "User reminders synchronized across devices"
+    },
+    "/users/{userId}/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "AI Chat history synchronized across devices"
+    },
+    "/users/{userId}/documents/{docId}": {
+      "schema": { "$ref": "#/entities/DocumentRecord" },
+      "description": "Parsed documents and Q&A history synchronized across devices"
+    },
+    "/users/{userId}/briefings/{briefingId}": {
+      "schema": { "$ref": "#/entities/Briefing" },
+      "description": "Daily briefings synchronized across devices"
+    },
+    "/users/{userId}/activityLogs/{activityId}": {
+      "schema": { "$ref": "#/entities/ActivityEvent" },
+      "description": "Device and user activity events synchronized across devices"
+    },
+    "/users/{userId}/hourlyReports/{reportId}": {
+      "schema": { "$ref": "#/entities/HourlyReport" },
+      "description": "Hourly device and activity reports synchronized across devices"
+    },
+    "/users/{userId}/businessMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/BusinessMessage" },
+      "description": "Business inbox messages synchronized across devices"
+    },
+    "/users/{userId}/alertLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AlertLog" },
+      "description": "Alert delivery logs synchronized across devices"
+    }
+  }
+}

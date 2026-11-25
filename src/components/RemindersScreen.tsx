@@ -1,8 +1,23 @@
 import React, { useState } from 'react';
-import { Bell, BellRing, CalendarPlus, Check, Info, Plus, Smartphone, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  Activity,
+  Bell,
+  BellRing,
+  CalendarPlus,
+  Check,
+  Info,
+  Plus,
+  Smartphone,
+  Sparkles,
+  Trash2,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
 import type {
   AlertCategoryPrefs,
   AlertLogItem,
+  HourlyReportItem,
   MachineSettings,
   ReminderCategory,
   ReminderItem,
@@ -19,6 +34,8 @@ import {
 } from '../services/notificationScheduler';
 import { createCalendarEvent } from '../services/calendarService';
 import type { GoogleConnectionStatus } from '../services/googleAuth';
+import { formatTelemetryLine, type DeviceTelemetry } from '../services/hourlyUpdateService';
+import { useSpeech } from '../hooks/useSpeech';
 import { PWAInstallButton } from './PWAInstallButton';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { GoldToggle } from './GoldToggle';
@@ -27,6 +44,8 @@ interface RemindersScreenProps {
   settings: MachineSettings;
   reminders: ReminderItem[];
   alertLogs: AlertLogItem[];
+  hourlyReports: HourlyReportItem[];
+  deviceTelemetry: DeviceTelemetry | null;
   googleStatus: GoogleConnectionStatus;
   onSaveReminder: (reminder: ReminderItem) => Promise<void>;
   onDeleteReminder: (id: string) => Promise<void>;
@@ -34,12 +53,15 @@ interface RemindersScreenProps {
   onAddAlertLog: (log: AlertLogItem) => Promise<void>;
   onNavigate: (screen: ScreenId) => void;
   onCalendarEventAdded: () => Promise<void>;
+  onRunHourlyUpdate: () => void;
 }
 
 export const RemindersScreen: React.FC<RemindersScreenProps> = ({
   settings,
   reminders,
   alertLogs,
+  hourlyReports,
+  deviceTelemetry,
   googleStatus,
   onSaveReminder,
   onDeleteReminder,
@@ -47,9 +69,11 @@ export const RemindersScreen: React.FC<RemindersScreenProps> = ({
   onAddAlertLog,
   onNavigate,
   onCalendarEventAdded,
+  onRunHourlyUpdate,
 }) => {
   const t = getTranslations(settings.language);
   const { isInstalled } = usePWAInstall();
+  const { isSpeaking, speak, stopSpeaking, unlockAudio } = useSpeech();
 
   const [permState, setPermState] = useState<NotificationPermissionState>(() =>
     getNotificationPermission()
@@ -401,6 +425,96 @@ export const RemindersScreen: React.FC<RemindersScreenProps> = ({
               ))}
             </ul>
           </div>
+        )}
+      </section>
+
+      {/* Hourly Device & Activity Updates */}
+      <section className="machine-card p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Activity strokeWidth={1.5} className="w-4 h-4 text-[var(--gold-500)]" />
+            <h2 className="section-title-gold text-sm font-semibold">
+              HOURLY DEVICE &amp; ACTIVITY UPDATES
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              unlockAudio();
+              onRunHourlyUpdate();
+            }}
+            className="min-h-[44px] px-4 machine-btn-primary text-xs flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Volume2 strokeWidth={1.5} className="w-4 h-4" />
+            <span>Update &amp; Speak Now</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="px-3.5 py-1 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+            <GoldToggle
+              checked={settings.hourlyUpdatesEnabled !== false}
+              onChange={(next) => void onUpdateSettings({ ...settings, hourlyUpdatesEnabled: next })}
+              label="Auto-update every 1 hour"
+            />
+          </div>
+          <div className="px-3.5 py-1 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+            <GoldToggle
+              checked={settings.hourlySpeakEnabled !== false}
+              onChange={(next) => void onUpdateSettings({ ...settings, hourlySpeakEnabled: next })}
+              label="Speak hourly report in English"
+            />
+          </div>
+        </div>
+
+        {deviceTelemetry && (
+          <p className="text-xs font-mono text-[var(--gold-300)]">
+            Live device: {formatTelemetryLine(deviceTelemetry)}
+          </p>
+        )}
+
+        <hr className="machine-divider" />
+        {hourlyReports.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)] py-2">
+            No hourly updates logged yet. Tap Update &amp; Speak Now to run your first device and activity summary.
+          </p>
+        ) : (
+          <ul className="divide-y divide-[var(--border)] max-h-72 overflow-y-auto">
+            {hourlyReports.slice(0, 8).map((rep) => (
+              <li key={rep.id} className="py-3 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-mono text-[var(--gold-300)] tabular-nums">
+                    {formatShortDateTime(rep.timestamp, settings.timezone)} · {rep.activityCount} actions
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      unlockAudio();
+                      if (isSpeaking) {
+                        stopSpeaking();
+                      } else {
+                        speak(rep.spokenSummary, {
+                          rate: settings.voiceRate,
+                          voiceURI: settings.voiceURI,
+                          langHint: 'en',
+                        });
+                      }
+                    }}
+                    className="min-h-[36px] px-2.5 machine-btn-secondary text-xs flex items-center gap-1"
+                  >
+                    {isSpeaking ? (
+                      <VolumeX strokeWidth={1.5} className="w-3.5 h-3.5" />
+                    ) : (
+                      <Volume2 strokeWidth={1.5} className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isSpeaking ? 'Stop' : 'Speak'}</span>
+                  </button>
+                </div>
+                <p className="text-sm text-[var(--text)] leading-relaxed">{rep.spokenSummary}</p>
+                <p className="text-xs text-[var(--text-muted)] whitespace-pre-line">{rep.summary}</p>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

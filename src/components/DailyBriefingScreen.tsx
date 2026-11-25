@@ -106,7 +106,7 @@ export const DailyBriefingScreen: React.FC<DailyBriefingScreenProps> = ({
                   speak(activeBriefing.content, {
                     rate: settings.voiceRate,
                     voiceURI: settings.voiceURI,
-                    langHint: settings.language === 'sw' ? 'sw' : 'en',
+                    langHint: 'en',
                   });
                 }
               }}

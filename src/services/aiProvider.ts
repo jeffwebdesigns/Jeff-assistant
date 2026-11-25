@@ -1,9 +1,11 @@
 import type {
+  ActivityEventItem,
   BusinessChannel,
   BusinessMessageItem,
   CalendarEventItem,
   CalendarIntentProposal,
   ChatMessage,
+  ChatMode,
   DocumentItem,
   EmailSummaryItem,
   MachineSettings,
@@ -16,6 +18,7 @@ import type {
 } from '../types/machine';
 import { createId } from '../db/storage';
 import { formatNairobiDateTime, formatShortDateTime } from '../utils/datetime';
+import { formatTelemetryLine, type DeviceTelemetry } from './hourlyUpdateService';
 
 export class AIProviderError extends Error {
   code: string;
@@ -47,27 +50,29 @@ function buildLocalContextSummary(params: {
   calendarEvents: CalendarEventItem[];
   emailSummaries: EmailSummaryItem[];
   businessMessages: BusinessMessageItem[];
+  activityLogs: ActivityEventItem[];
+  deviceTelemetry?: DeviceTelemetry | null;
   timezone: string;
 }): string {
   const keywords = params.query
     .toLowerCase()
     .split(/[^a-z0-9]+/i)
     .filter((w) => w.length >= 3)
-    .slice(0, 12);
+    .slice(0, 10);
 
   const activeTasks = params.tasks
     .filter((t) => t.status !== 'done')
     .sort((a, b) => relevanceScore(`${b.title} ${b.notes ?? ''}`, keywords) - relevanceScore(`${a.title} ${a.notes ?? ''}`, keywords))
-    .slice(0, 16)
+    .slice(0, 10)
     .map((t) => `- [${t.status}/${t.priority}] ${t.title}${t.dueDate ? ` (due ${t.dueDate})` : ''}`);
 
   const activeReminders = params.reminders
     .filter((r) => !r.completed)
-    .slice(0, 14)
+    .slice(0, 10)
     .map((r) => `- [${r.category}${r.isMeeting ? '/meeting' : ''}] ${r.title} at ${formatShortDateTime(r.dueAt, params.timezone)}`);
 
   const upcomingEvents = params.calendarEvents
-    .slice(0, 12)
+    .slice(0, 8)
     .map((ev) => `- [Calendar] ${ev.summary} (${formatShortDateTime(ev.startIso, params.timezone)})`);
 
   const recentEmails = [...params.emailSummaries]
@@ -76,27 +81,42 @@ function buildLocalContextSummary(params: {
       const sB = relevanceScore(`${b.from} ${b.subject} ${b.aiSummary}`, keywords) + (b.urgency === 'high' ? 2 : 0);
       return sB - sA;
     })
-    .slice(0, 8)
+    .slice(0, 6)
     .map((e) => `- [${e.urgency.toUpperCase()} Email] From ${e.from}: ${e.subject} — ${e.aiSummary}`);
 
   const matchedNotes = [...params.notes]
     .sort((a, b) => relevanceScore(`${b.title} ${b.content} ${b.tags.join(' ')}`, keywords) - relevanceScore(`${a.title} ${a.content} ${a.tags.join(' ')}`, keywords))
-    .slice(0, 10)
-    .map((n) => `- ${n.title}: ${n.content.slice(0, 320).replace(/\s+/g, ' ')}`);
+    .slice(0, 6)
+    .map((n) => `- ${n.title}: ${n.content.slice(0, 220).replace(/\s+/g, ' ')}`);
 
   const matchedDocs = [...params.documents]
     .sort((a, b) => relevanceScore(`${b.name} ${b.summary ?? ''} ${b.extractedText}`, keywords) - relevanceScore(`${a.name} ${a.summary ?? ''} ${a.extractedText}`, keywords))
-    .slice(0, 4)
+    .slice(0, 3)
     .map((d) => {
-      const bodySnippet = (d.summary || d.extractedText).slice(0, 650).replace(/\s+/g, ' ');
+      const bodySnippet = (d.summary || d.extractedText).slice(0, 450).replace(/\s+/g, ' ');
       return `- [Document: ${d.name}] ${bodySnippet}`;
     });
 
   const recentBiz = params.businessMessages
-    .slice(0, 6)
-    .map((m) => `- [${m.channel}/${m.urgency}] ${m.senderLabel}: ${m.summary || m.rawText.slice(0, 180)}`);
+    .slice(0, 4)
+    .map((m) => `- [${m.channel}/${m.urgency}] ${m.senderLabel}: ${m.summary || m.rawText.slice(0, 160)}`);
+
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  const recentActivity = params.activityLogs
+    .filter((ev) => {
+      const ms = Date.parse(ev.timestamp);
+      return !Number.isNaN(ms) && ms >= oneHourAgo;
+    })
+    .slice(0, 10)
+    .map((ev) => `- ${formatShortDateTime(ev.timestamp, params.timezone)}: ${ev.action}${ev.detail ? ` (${ev.detail})` : ''}`);
+
+  const deviceLine = params.deviceTelemetry
+    ? `Logged-In Device Status: ${formatTelemetryLine(params.deviceTelemetry)} (${params.deviceTelemetry.activeState})`
+    : '';
 
   return [
+    deviceLine,
+    recentActivity.length ? `Recent Activity in THE MACHINE (Last 1 Hour):\n${recentActivity.join('\n')}` : '',
     activeTasks.length ? `Active Tasks:\n${activeTasks.join('\n')}` : 'Active Tasks: None',
     activeReminders.length ? `Upcoming Reminders:\n${activeReminders.join('\n')}` : 'Upcoming Reminders: None',
     upcomingEvents.length ? `Google Calendar:\n${upcomingEvents.join('\n')}` : 'Google Calendar: Not connected or empty',
@@ -109,9 +129,33 @@ function buildLocalContextSummary(params: {
     .join('\n\n');
 }
 
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = 28000): Promise<Response> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return Promise.reject(new AIProviderError('You appear to be offline. Reconnect and tap Retry.', 'OFFLINE'));
+  }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeoutMs);
+  const callerSignal = init.signal;
+  const onCallerAbort = () => controller.abort(callerSignal?.reason);
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      window.clearTimeout(timer);
+      controller.abort(callerSignal.reason);
+    } else {
+      callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+  }
+
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+    window.clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', onCallerAbort);
+  });
+}
+
 export const aiProvider = {
   async streamChat(params: {
     message: string;
+    mode?: ChatMode;
     history: ChatMessage[];
     settings: MachineSettings;
     tasks: TaskItem[];
@@ -121,9 +165,16 @@ export const aiProvider = {
     calendarEvents?: CalendarEventItem[];
     emailSummaries?: EmailSummaryItem[];
     businessMessages?: BusinessMessageItem[];
+    activityLogs?: ActivityEventItem[];
+    deviceTelemetry?: DeviceTelemetry | null;
     onChunk: (partial: string) => void;
     signal?: AbortSignal;
   }): Promise<{ text: string; sources?: Array<{ uri: string; title: string }> }> {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new AIProviderError('You appear to be offline. Reconnect and tap Retry.', 'OFFLINE');
+    }
+
+    const mode: ChatMode = params.mode ?? 'auto';
     const { dateStr, timeStr } = formatNairobiDateTime(new Date(), params.settings.timezone);
     const localContext = buildLocalContextSummary({
       query: params.message,
@@ -134,55 +185,82 @@ export const aiProvider = {
       calendarEvents: params.calendarEvents ?? [],
       emailSummaries: params.emailSummaries ?? [],
       businessMessages: params.businessMessages ?? [],
+      activityLogs: params.activityLogs ?? [],
+      deviceTelemetry: params.deviceTelemetry ?? null,
       timezone: params.settings.timezone,
     });
 
-    const response = await fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: params.signal,
-      body: JSON.stringify({
-        message: params.message,
-        history: params.history.slice(-14).map((h) => ({ role: h.role, content: h.content })),
-        systemPrompt: params.settings.systemPrompt,
-        displayName: params.settings.displayName,
-        nowNairobi: `${dateStr} ${timeStr}`,
-        localContext,
-      }),
-    });
+    const streamController = new AbortController();
+    let timedOutReason: string | null = null;
+    let receivedFirstContent = false;
 
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => ({}));
-      throw new AIProviderError(
-        errJson.error || 'Unable to reach THE MACHINE.',
-        errJson.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
+    const onCallerAbort = () => streamController.abort(params.signal?.reason);
+    if (params.signal) {
+      if (params.signal.aborted) {
+        streamController.abort(params.signal.reason);
+      } else {
+        params.signal.addEventListener('abort', onCallerAbort, { once: true });
+      }
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new AIProviderError('Streaming response unavailable.');
-    }
+    const firstChunkTimeoutMs = mode === 'research' ? 46000 : mode === 'fast' ? 22000 : 34000;
+    const overallTimeoutMs = mode === 'research' ? 115000 : mode === 'fast' ? 45000 : 80000;
 
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let accumulated = '';
-    let sources: Array<{ uri: string; title: string }> | undefined;
+    // Never allow a stalled request to trap the UI in Thinking state indefinitely
+    const firstChunkTimer = window.setTimeout(() => {
+      if (!receivedFirstContent) {
+        timedOutReason = 'THE MACHINE took too long to respond. Tap Retry.';
+        streamController.abort(new DOMException(timedOutReason, 'TimeoutError'));
+      }
+    }, firstChunkTimeoutMs);
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    const overallTimer = window.setTimeout(() => {
+      timedOutReason = 'Response timed out. Tap Retry.';
+      streamController.abort(new DOMException(timedOutReason, 'TimeoutError'));
+    }, overallTimeoutMs);
 
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: streamController.signal,
+        body: JSON.stringify({
+          message: params.message,
+          mode,
+          history: params.history.slice(-16).map((h) => ({ role: h.role, content: h.content })),
+          systemPrompt: params.settings.systemPrompt,
+          displayName: params.settings.displayName,
+          nowNairobi: `${dateStr} ${timeStr}`,
+          localContext,
+        }),
+      });
 
-      for (const rawLine of lines) {
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new AIProviderError(
+          errJson.error || 'Unable to reach THE MACHINE.',
+          errJson.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
+        );
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new AIProviderError('Streaming response unavailable.');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulated = '';
+      let sources: Array<{ uri: string; title: string }> | undefined;
+      let doneReceived = false;
+
+      const processLine = (rawLine: string) => {
         const line = rawLine.trim();
-        if (!line.startsWith('data:')) continue;
+        if (!line || line.startsWith(':') || !line.startsWith('data:')) return;
         const payload = line.slice(5).trim();
         if (payload === '[DONE]') {
-          return { text: accumulated, sources };
+          doneReceived = true;
+          return;
         }
         try {
           const parsed = JSON.parse(payload) as {
@@ -195,6 +273,10 @@ export const aiProvider = {
             throw new AIProviderError(parsed.error, parsed.code || 'AI_ERROR');
           }
           if (parsed.chunk) {
+            if (!receivedFirstContent) {
+              receivedFirstContent = true;
+              window.clearTimeout(firstChunkTimer);
+            }
             accumulated += parsed.chunk;
             params.onChunk(accumulated);
           }
@@ -204,10 +286,47 @@ export const aiProvider = {
         } catch (e) {
           if (e instanceof AIProviderError) throw e;
         }
-      }
-    }
+      };
 
-    return { text: accumulated, sources };
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const rawLine of lines) {
+          processLine(rawLine);
+          if (doneReceived) {
+            return { text: accumulated, sources };
+          }
+        }
+      }
+
+      // Flush any trailing line left without a newline before EOF
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        for (const rawLine of buffer.split('\n')) {
+          processLine(rawLine);
+        }
+      }
+
+      if (!accumulated.trim()) {
+        throw new AIProviderError('No response received from THE MACHINE. Tap Retry.', 'AI_ERROR');
+      }
+
+      return { text: accumulated, sources };
+    } catch (err) {
+      if (timedOutReason) {
+        throw new AIProviderError(timedOutReason, 'AI_TIMEOUT');
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(firstChunkTimer);
+      window.clearTimeout(overallTimer);
+      params.signal?.removeEventListener('abort', onCallerAbort);
+    }
   },
 
   async parseNaturalLanguageItems(
@@ -217,7 +336,7 @@ export const aiProvider = {
     const now = new Date();
     const { isoDate, timeStr } = formatNairobiDateTime(now, timezone);
 
-    const response = await fetch('/api/ai/parse-intent', {
+    const response = await fetchWithTimeout('/api/ai/parse-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -286,13 +405,13 @@ export const aiProvider = {
     text: string;
     settings: MachineSettings;
   }): Promise<{ summary: string; keyPoints: string[] }> {
-    const response = await fetch('/api/ai/document-analyze', {
+    const response = await fetchWithTimeout('/api/ai/document-analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title: params.title,
         text: params.text,
-        language: params.settings.language,
+        language: 'en',
         systemPrompt: params.settings.systemPrompt,
       }),
     });
@@ -319,7 +438,7 @@ export const aiProvider = {
     question: string;
     settings: MachineSettings;
   }): Promise<string> {
-    const response = await fetch('/api/ai/document-qa', {
+    const response = await fetchWithTimeout('/api/ai/document-qa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -387,14 +506,14 @@ export const aiProvider = {
       ? 'Connected, no cached inbox messages yet.'
       : 'Gmail not connected.';
 
-    const response = await fetch('/api/ai/briefing', {
+    const response = await fetchWithTimeout('/api/ai/briefing', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         systemPrompt: params.settings.systemPrompt,
         displayName: params.settings.displayName,
         nowNairobi: `${dateStr} ${timeStr}`,
-        language: params.settings.language,
+        language: 'en',
         tasksText,
         remindersText,
         notesText,
@@ -430,7 +549,7 @@ export const aiProvider = {
       }
     >;
   }> {
-    const response = await fetch('/api/ai/gmail-triage', {
+    const response = await fetchWithTimeout('/api/ai/gmail-triage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -481,7 +600,7 @@ export const aiProvider = {
     const now = new Date();
     const { isoDate, timeStr } = formatNairobiDateTime(now, params.timezone);
 
-    const response = await fetch('/api/ai/calendar-intent', {
+    const response = await fetchWithTimeout('/api/ai/calendar-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -549,7 +668,7 @@ export const aiProvider = {
     detectedLanguage: string;
     draftReply: string;
   }> {
-    const response = await fetch('/api/ai/business-inbox', {
+    const response = await fetchWithTimeout('/api/ai/business-inbox', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),

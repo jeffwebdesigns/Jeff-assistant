@@ -1,5 +1,7 @@
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SYSTEM_PROMPT,
+  type ActivityEventItem,
   type AlertLogItem,
   type BriefingItem,
   type BusinessMessageItem,
@@ -7,6 +9,7 @@ import {
   type ChatMessage,
   type DocumentItem,
   type EmailSummaryItem,
+  type HourlyReportItem,
   type MachineBackupPayload,
   type MachineSettings,
   type NoteItem,
@@ -15,7 +18,7 @@ import {
 } from '../types/machine';
 
 const DB_NAME = 'machine_private_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   notes: 'notes',
@@ -25,6 +28,8 @@ const STORES = {
   documents: 'documents',
   briefings: 'briefings',
   alertLogs: 'alertLogs',
+  activityLogs: 'activityLogs',
+  hourlyReports: 'hourlyReports',
   emailSummaries: 'emailSummaries',
   calendarEvents: 'calendarEvents',
   businessMessages: 'businessMessages',
@@ -124,6 +129,7 @@ export const dbStorage = {
     return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   },
   saveNote: (note: NoteItem) => putInStore(STORES.notes, note),
+  replaceNotes: (items: NoteItem[]) => replaceAllInStore(STORES.notes, items),
   deleteNote: (id: string) => deleteFromStore(STORES.notes, id),
 
   // Tasks
@@ -132,6 +138,7 @@ export const dbStorage = {
     return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   },
   saveTask: (task: TaskItem) => putInStore(STORES.tasks, task),
+  replaceTasks: (items: TaskItem[]) => replaceAllInStore(STORES.tasks, items),
   deleteTask: (id: string) => deleteFromStore(STORES.tasks, id),
 
   // Reminders
@@ -140,6 +147,7 @@ export const dbStorage = {
     return list.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
   },
   saveReminder: (reminder: ReminderItem) => putInStore(STORES.reminders, reminder),
+  replaceReminders: (items: ReminderItem[]) => replaceAllInStore(STORES.reminders, items),
   deleteReminder: (id: string) => deleteFromStore(STORES.reminders, id),
 
   // Chats
@@ -148,6 +156,7 @@ export const dbStorage = {
     return list.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   },
   saveChat: (msg: ChatMessage) => putInStore(STORES.chats, msg),
+  replaceChats: (items: ChatMessage[]) => replaceAllInStore(STORES.chats, items),
   clearChats: () => clearStore(STORES.chats),
 
   // Documents
@@ -156,6 +165,7 @@ export const dbStorage = {
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
   saveDocument: (doc: DocumentItem) => putInStore(STORES.documents, doc),
+  replaceDocuments: (items: DocumentItem[]) => replaceAllInStore(STORES.documents, items),
   deleteDocument: (id: string) => deleteFromStore(STORES.documents, id),
 
   // Briefings
@@ -164,6 +174,7 @@ export const dbStorage = {
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
   saveBriefing: (briefing: BriefingItem) => putInStore(STORES.briefings, briefing),
+  replaceBriefings: (items: BriefingItem[]) => replaceAllInStore(STORES.briefings, items),
 
   // Alert logs
   async listAlertLogs(): Promise<AlertLogItem[]> {
@@ -171,6 +182,41 @@ export const dbStorage = {
     return list.sort((a, b) => b.firedAt.localeCompare(a.firedAt));
   },
   saveAlertLog: (log: AlertLogItem) => putInStore(STORES.alertLogs, log),
+  replaceAlertLogs: (items: AlertLogItem[]) => replaceAllInStore(STORES.alertLogs, items),
+
+  // Device activity logs (newest first, capped at 180)
+  async listActivityLogs(): Promise<ActivityEventItem[]> {
+    const list = await getAllFromStore<ActivityEventItem>(STORES.activityLogs);
+    return list.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  },
+  async saveActivityLog(event: ActivityEventItem): Promise<void> {
+    await putInStore(STORES.activityLogs, event);
+    const all = await this.listActivityLogs();
+    if (all.length > 180) {
+      for (const stale of all.slice(180)) {
+        await deleteFromStore(STORES.activityLogs, stale.id);
+      }
+    }
+  },
+  replaceActivityLogs: (items: ActivityEventItem[]) =>
+    replaceAllInStore(STORES.activityLogs, items),
+
+  // Hourly reports (newest first, capped at 48)
+  async listHourlyReports(): Promise<HourlyReportItem[]> {
+    const list = await getAllFromStore<HourlyReportItem>(STORES.hourlyReports);
+    return list.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  },
+  async saveHourlyReport(report: HourlyReportItem): Promise<void> {
+    await putInStore(STORES.hourlyReports, report);
+    const all = await this.listHourlyReports();
+    if (all.length > 48) {
+      for (const stale of all.slice(48)) {
+        await deleteFromStore(STORES.hourlyReports, stale.id);
+      }
+    }
+  },
+  replaceHourlyReports: (items: HourlyReportItem[]) =>
+    replaceAllInStore(STORES.hourlyReports, items),
 
   // Cached Gmail summaries
   async listEmailSummaries(): Promise<EmailSummaryItem[]> {
@@ -197,6 +243,8 @@ export const dbStorage = {
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
   saveBusinessMessage: (msg: BusinessMessageItem) => putInStore(STORES.businessMessages, msg),
+  replaceBusinessMessages: (items: BusinessMessageItem[]) =>
+    replaceAllInStore(STORES.businessMessages, items),
   deleteBusinessMessage: (id: string) => deleteFromStore(STORES.businessMessages, id),
 
   // Settings
@@ -217,6 +265,32 @@ export const dbStorage = {
     if (!existing.voiceDefaultUpgraded) {
       merged.voiceOutputEnabled = true;
       merged.voiceDefaultUpgraded = true;
+    }
+    if (!existing.englishOnlyUpgraded) {
+      merged.language = 'en';
+      if (merged.voiceInputLang === 'sw-KE') {
+        merged.voiceInputLang = 'en-KE';
+      }
+      if (
+        merged.systemPrompt.includes('English or Swahili') ||
+        merged.systemPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.')
+      ) {
+        merged.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+      }
+      if (typeof existing.hourlyUpdatesEnabled !== 'boolean') {
+        merged.hourlyUpdatesEnabled = true;
+      }
+      if (typeof existing.hourlySpeakEnabled !== 'boolean') {
+        merged.hourlySpeakEnabled = true;
+      }
+      merged.englishOnlyUpgraded = true;
+      await putInStore(STORES.settings, merged);
+    } else if (
+      merged.systemPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.')
+    ) {
+      merged.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+      await putInStore(STORES.settings, merged);
+    } else if (!existing.voiceDefaultUpgraded) {
       await putInStore(STORES.settings, merged);
     }
     return merged;

@@ -168,7 +168,7 @@ async function ensureGisLoaded(): Promise<GoogleAccountsNamespace> {
 
 export async function connectGoogle(
   settingsClientId?: string,
-  promptMode: 'consent' | '' = 'consent'
+  promptMode: 'select_account consent' | 'select_account' | 'consent' | '' = 'select_account consent'
 ): Promise<void> {
   const clientId = resolveGoogleClientId(settingsClientId);
   if (!clientId) {

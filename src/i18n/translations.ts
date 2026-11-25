@@ -42,8 +42,8 @@ const en = {
     openAlerts: 'Open Alerts',
   },
   chat: {
-    title: 'AI Chat',
-    placeholder: 'Message THE MACHINE...',
+    title: 'AI Chat · Open Intelligence',
+    placeholder: 'Ask anything, paste a link/text, or start deep research...',
     send: 'Send',
     clearChat: 'Clear History',
     clearConfirm: 'Clear all saved chat messages?',
@@ -52,15 +52,16 @@ const en = {
     stopSpeaking: 'Stop',
     micStart: 'Speak',
     micStop: 'Listening...',
-    contextInfo: 'Local context attached',
+    contextInfo: 'Open AI + Personal Context',
     tasksLabel: 'tasks',
     remindersLabel: 'reminders',
     notesLabel: 'notes',
     retry: 'Retry',
     rateLimitMsg: 'Machine is resting, try again shortly',
-    emptyTitle: 'Direct Channel Open',
-    emptyBody: 'Ask a question, review your schedule, or speak in English or Kiswahili. Only your local app data is referenced.',
-    thinking: 'Processing...',
+    emptyTitle: 'Open Intelligence & Research Online',
+    emptyBody: 'Ask any question in the world — deep research, coding, science, business, strategy, current events, or your personal tasks and device activity. Strictly in English.',
+    thinking: 'Thinking & researching...',
+    stopGenerating: 'Stop',
   },
   notesTasks: {
     title: 'Notes & Tasks',
@@ -330,6 +331,7 @@ const sw: typeof en = {
     emptyTitle: 'Njia ya Moja kwa Moja Iko Wazi',
     emptyBody: 'Uliza swali, kagua ratiba yako, au zungumza kwa Kiswahili au Kiingereza. Data yako ya kifaa pekee ndiyo inayotumika.',
     thinking: 'Inachakata...',
+    stopGenerating: 'Simamisha',
   },
   notesTasks: {
     title: 'Maelezo na Kazi',
@@ -538,6 +540,6 @@ const sw: typeof en = {
   },
 };
 
-export function getTranslations(lang: UILanguage) {
-  return lang === 'sw' ? sw : en;
+export function getTranslations(_lang: UILanguage) {
+  return en;
 }

@@ -29,7 +29,7 @@ export function useGoogleAuth(settingsClientId?: string) {
     setIsConnecting(true);
     setAuthError(null);
     try {
-      await connectGoogle(settingsClientId, 'consent');
+      await connectGoogle(settingsClientId, 'select_account consent');
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Unable to connect Google.');
     } finally {
@@ -41,9 +41,21 @@ export function useGoogleAuth(settingsClientId?: string) {
     setIsConnecting(true);
     setAuthError(null);
     try {
-      await connectGoogle(settingsClientId, '');
+      await connectGoogle(settingsClientId, 'select_account');
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Unable to reconnect Google.');
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [settingsClientId]);
+
+  const switchAccount = useCallback(async () => {
+    setIsConnecting(true);
+    setAuthError(null);
+    try {
+      await connectGoogle(settingsClientId, 'select_account consent');
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Unable to switch Google account.');
     } finally {
       setIsConnecting(false);
     }
@@ -61,6 +73,7 @@ export function useGoogleAuth(settingsClientId?: string) {
     clearAuthError: () => setAuthError(null),
     connect,
     reconnect,
+    switchAccount,
     disconnect,
   };
 }

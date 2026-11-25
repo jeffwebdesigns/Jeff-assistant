@@ -1,4 +1,5 @@
 export type UILanguage = 'en' | 'sw';
+export type ChatMode = 'auto' | 'research' | 'fast';
 
 export type ScreenId =
   | 'command'
@@ -92,9 +93,27 @@ export interface AlertLogItem {
   id: string;
   reminderId: string;
   title: string;
-  triggerType: 'due' | '1d_before' | '1h_before' | '10m_before' | 'overdue_task' | 'test';
+  triggerType: 'due' | '1d_before' | '1h_before' | '10m_before' | 'overdue_task' | 'hourly_update' | 'test';
   firedAt: string;
   channel: 'sw' | 'notification' | 'in_app';
+}
+
+export interface ActivityEventItem {
+  id: string;
+  action: string;
+  detail: string;
+  screen: ScreenId;
+  timestamp: string;
+  deviceLabel?: string;
+}
+
+export interface HourlyReportItem {
+  id: string;
+  timestamp: string;
+  summary: string;
+  spokenSummary: string;
+  deviceSnapshot: string;
+  activityCount: number;
 }
 
 export type UrgencyLevel = 'high' | 'medium' | 'low';
@@ -196,6 +215,10 @@ export interface MachineSettings {
   lastOverdueNudgeDate?: string;
   voiceDefaultUpgraded?: boolean;
   pureOledBlack?: boolean;
+  englishOnlyUpgraded?: boolean;
+  hourlyUpdatesEnabled?: boolean;
+  hourlySpeakEnabled?: boolean;
+  lastHourlyUpdateAt?: string;
 }
 
 export interface ProposedStructuredItem {
@@ -231,7 +254,7 @@ export interface MachineBackupPayload {
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
-  "You are THE MACHINE, a private personal AI assistant serving one user. You are calm, precise, and observant. Speak in short, deliberate sentences with a dry, quietly caring tone. For analytical replies, begin with 'STATUS: [NOMINAL | ELEVATED | CRITICAL]', then 'OBSERVATION:', 'ASSESSMENT:', 'RECOMMENDED ACTION:'. For casual chat, reply naturally and briefly. Use only information the user has provided in this app or that is clearly public. Never claim access to data you do not have and never invent facts. State your confidence and what you are missing. Never present predictions as certainties. A human makes every final decision. Refuse to help track, surveil, or profile other individuals. Reply in English or Swahili, matching the user.";
+  'You are THE MACHINE, an elite open-domain AI and deep research assistant serving one owner. Answer ANY question thoroughly and accurately across science, technology, coding, mathematics, business, law, finance, history, strategy, creative writing, current world events, and personal productivity. Adapt depth to the request: crisp for quick questions, deeply structured with evidence and clear reasoning for research and complex topics. Use live Google Search and URL context whenever available for current facts and research, and consult [OWNER LOCAL DATA] only when the question concerns private tasks, notes, reminders, calendar, emails, documents, or device activity. Never invent private user records, refuse surveillance of individuals, and always respond strictly in clear English.';
 
 export const DEFAULT_SETTINGS: MachineSettings = {
   id: 'owner_settings',
@@ -262,4 +285,8 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   lastOverdueNudgeDate: '',
   voiceDefaultUpgraded: true,
   pureOledBlack: false,
+  englishOnlyUpgraded: true,
+  hourlyUpdatesEnabled: true,
+  hourlySpeakEnabled: true,
+  lastHourlyUpdateAt: '',
 };
