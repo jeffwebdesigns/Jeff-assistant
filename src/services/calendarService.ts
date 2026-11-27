@@ -31,6 +31,19 @@ async function calendarFetch(path: string, init: RequestInit, settingsClientId?:
   return res;
 }
 
+async function formatCalendarError(res: Response, fallback: string): Promise<string> {
+  const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+  const msg = err?.error?.message || fallback;
+  const lower = msg.toLowerCase();
+  if (lower.includes('has not been used in project') || lower.includes('is disabled')) {
+    return `${msg} — Google Calendar API may still be propagating for project 804415406495. Wait 1–2 minutes and retry.`;
+  }
+  if (res.status === 403 && (lower.includes('insufficient') || lower.includes('scope'))) {
+    return `${msg} — Disconnect and reconnect Google, approving all requested permissions.`;
+  }
+  return msg;
+}
+
 export async function fetchUpcomingCalendarEvents(
   settingsClientId?: string,
   daysAhead = 14
@@ -49,8 +62,7 @@ export async function fetchUpcomingCalendarEvents(
 
   const res = await calendarFetch(`?${qs.toString()}`, { method: 'GET' }, settingsClientId);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to fetch Google Calendar events.');
+    throw new Error(await formatCalendarError(res, 'Failed to fetch Google Calendar events.'));
   }
 
   const data = (await res.json()) as { items?: GoogleEventRaw[] };
@@ -107,8 +119,7 @@ export async function createCalendarEvent(params: {
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to create Google Calendar event.');
+    throw new Error(await formatCalendarError(res, 'Failed to create Google Calendar event.'));
   }
   const ev = (await res.json()) as GoogleEventRaw;
   return {
@@ -151,8 +162,7 @@ export async function updateCalendarEvent(params: {
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to update Google Calendar event.');
+    throw new Error(await formatCalendarError(res, 'Failed to update Google Calendar event.'));
   }
 }
 
@@ -163,8 +173,7 @@ export async function deleteCalendarEvent(eventId: string, settingsClientId?: st
     settingsClientId
   );
   if (!res.ok && res.status !== 404) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to cancel Google Calendar event.');
+    throw new Error(await formatCalendarError(res, 'Failed to cancel Google Calendar event.'));
   }
 }
 

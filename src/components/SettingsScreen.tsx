@@ -1,12 +1,15 @@
 import React, { useRef, useState } from 'react';
 import {
   AlertTriangle,
+  CheckCircle2,
   Cloud,
   Copy,
   Download,
   Lock,
+  RefreshCw,
   RotateCcw,
   Save,
+  Server,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -102,6 +105,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Google Client ID override & Drive backup state
   const [customClientId, setCustomClientId] = useState(settings.googleClientId ?? '');
   const [originCopied, setOriginCopied] = useState(false);
+  const [hostCopied, setHostCopied] = useState(false);
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [healthResult, setHealthResult] = useState<{
+    status: 'ok' | 'missing_key' | 'error';
+    summary: string;
+  } | null>(null);
 
   React.useEffect(() => {
     setDisplayName(settings.displayName);
@@ -133,8 +142,58 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [confirmWipe, setConfirmWipe] = useState(false);
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
   const resolvedClientId = resolveGoogleClientId(settings.googleClientId);
   const remainingMins = Math.max(1, Math.ceil(remainingSeconds / 60));
+
+  const handleCheckBackendHealth = async () => {
+    if (healthBusy) return;
+    setHealthBusy(true);
+    setHealthResult(null);
+    try {
+      const resp = await fetch('/api/health', { cache: 'no-store' });
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json')) {
+        setHealthResult({
+          status: 'error',
+          summary: `HTTP ${resp.status} non-JSON response. Make sure Vercel deploys api/[...path].ts and vercel.json, then redeploy.`,
+        });
+        return;
+      }
+      const data = (await resp.json()) as {
+        ok?: boolean;
+        aiConfigured?: boolean;
+        runtime?: string;
+        model?: string;
+        groundingModel?: string;
+      };
+      if (!resp.ok || !data.ok) {
+        setHealthResult({
+          status: 'error',
+          summary: `Server returned HTTP ${resp.status}. Check deployment logs.`,
+        });
+        return;
+      }
+      if (!data.aiConfigured) {
+        setHealthResult({
+          status: 'missing_key',
+          summary: `Server reachable (${data.runtime ?? 'node'}), but GEMINI_API_KEY is missing. Add GEMINI_API_KEY in Vercel Environment Variables and redeploy.`,
+        });
+        return;
+      }
+      setHealthResult({
+        status: 'ok',
+        summary: `AI Server Online · Runtime: ${data.runtime ?? 'node'} · Key configured · Models: ${data.groundingModel ?? 'gemini-4'} / ${data.model ?? 'lite'}`,
+      });
+    } catch (err) {
+      setHealthResult({
+        status: 'error',
+        summary: err instanceof Error ? err.message : 'Unable to reach /api/health.',
+      });
+    } finally {
+      setHealthBusy(false);
+    }
+  };
 
   const handleSaveGeneral = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -659,6 +718,99 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {driveError && <p className="text-xs font-mono text-[var(--error)]">{driveError}</p>}
             </section>
           </div>
+
+          {/* Live Deployment & Vercel Diagnostics */}
+          <section className="machine-card p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Server strokeWidth={1.5} className="w-4 h-4 text-[var(--gold-500)]" />
+                <h2 className="section-title-gold text-sm font-semibold">
+                  Live Deployment &amp; Vercel Check
+                </h2>
+              </div>
+              <button
+                type="button"
+                disabled={healthBusy}
+                onClick={() => void handleCheckBackendHealth()}
+                className="min-h-[44px] px-4 machine-btn-secondary text-xs flex items-center gap-2"
+              >
+                <RefreshCw strokeWidth={1.5} className={`w-3.5 h-3.5 ${healthBusy ? 'animate-spin' : ''}`} />
+                <span>{healthBusy ? 'Checking...' : 'Test AI Server (/api/health)'}</span>
+              </button>
+            </div>
+
+            {healthResult && (
+              <div
+                className={`rounded-xl bg-[var(--surface-2)] border p-3 text-xs font-mono flex items-start gap-2 ${
+                  healthResult.status === 'ok'
+                    ? 'border-[var(--success)]/70 text-[var(--success)]'
+                    : healthResult.status === 'missing_key'
+                    ? 'border-[var(--status-elevated)]/70 text-[var(--status-elevated)]'
+                    : 'border-[var(--error)]/70 text-[var(--error)]'
+                }`}
+              >
+                <CheckCircle2 strokeWidth={1.5} className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="leading-relaxed break-words">{healthResult.summary}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] p-3 space-y-2">
+                <p className="text-[var(--text-muted)]">App Origin (Google OAuth JS Origins)</p>
+                <div className="flex items-center justify-between gap-2">
+                  <code className="font-mono text-[var(--gold-300)] truncate">{currentOrigin}</code>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(currentOrigin);
+                      setOriginCopied(true);
+                      window.setTimeout(() => setOriginCopied(false), 2000);
+                    }}
+                    className="min-h-[44px] px-3 machine-btn-secondary text-xs font-mono flex items-center gap-1.5 shrink-0"
+                  >
+                    <Copy strokeWidth={1.5} className="w-3.5 h-3.5" />
+                    <span>{originCopied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] p-3 space-y-2">
+                <p className="text-[var(--text-muted)]">Hostname (Firebase Authorized Domains)</p>
+                <div className="flex items-center justify-between gap-2">
+                  <code className="font-mono text-[var(--gold-300)] truncate">{currentHost}</code>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(currentHost);
+                      setHostCopied(true);
+                      window.setTimeout(() => setHostCopied(false), 2000);
+                    }}
+                    className="min-h-[44px] px-3 machine-btn-secondary text-xs font-mono flex items-center gap-1.5 shrink-0"
+                  >
+                    <Copy strokeWidth={1.5} className="w-3.5 h-3.5" />
+                    <span>{hostCopied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <ol className="space-y-1.5 text-xs text-[var(--text-muted)] list-decimal pl-5 leading-relaxed marker:text-[var(--gold-500)]">
+              <li>
+                <strong className="text-[var(--text)]">Vercel AI Chat:</strong> In Vercel Project Settings → Environment Variables, set{' '}
+                <code className="font-mono text-[var(--gold-300)]">GEMINI_API_KEY</code> and redeploy.
+              </li>
+              <li>
+                <strong className="text-[var(--text)]">Google Account &amp; Real-Time Sync:</strong> In Firebase Console (project{' '}
+                <code className="font-mono text-[var(--gold-300)]">gen-lang-client-0036993655</code>) → Authentication → Settings → Authorized domains, add{' '}
+                <code className="font-mono text-[var(--gold-300)]">{currentHost}</code>.
+              </li>
+              <li>
+                <strong className="text-[var(--text)]">Gmail / Calendar / Drive:</strong> In Google Cloud Console (project{' '}
+                <code className="font-mono text-[var(--gold-300)]">804415406495</code>) → Credentials → OAuth Client ID, add{' '}
+                <code className="font-mono text-[var(--gold-300)]">{currentOrigin}</code> to Authorized JavaScript origins.
+              </li>
+            </ol>
+          </section>
 
           {/* Step-by-step Google Cloud OAuth Setup Guide */}
           <section className="machine-card p-5 space-y-3">

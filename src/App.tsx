@@ -197,9 +197,23 @@ export default function App() {
     } catch (err) {
       const code = (err as { code?: string })?.code ?? '';
       if (
-        code !== 'auth/popup-closed-by-user' &&
-        code !== 'auth/cancelled-popup-request'
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request'
       ) {
+        return;
+      }
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+      if (code === 'auth/unauthorized-domain') {
+        setSyncError(
+          `Domain "${host}" is not authorized in Firebase Auth yet. Add "${host}" under Firebase Console → Authentication → Settings → Authorized domains (project gen-lang-client-0036993655), then tap Google again.`
+        );
+      } else if (code === 'auth/popup-blocked') {
+        setSyncError(
+          'Google Sign-In popup was blocked by your browser. Allow popups for this site and tap Google again.'
+        );
+      } else if (code === 'auth/network-request-failed') {
+        setSyncError('Network error while signing in with Google. Check your internet connection and retry.');
+      } else {
         setSyncError(err instanceof Error ? err.message : 'Unable to sign in with Google.');
       }
     } finally {
@@ -1005,6 +1019,21 @@ export default function App() {
             <PWAInstallButton compact />
           </div>
         </header>
+
+        {/* Mobile Cloud Auth / Sync Error Banner */}
+        {syncError && (
+          <div className="lg:hidden mx-4 mt-3 machine-card border-[var(--error)]/70 px-3.5 py-2.5 flex items-start justify-between gap-2 text-xs text-[var(--error)]">
+            <span className="leading-relaxed break-words">{syncError}</span>
+            <button
+              type="button"
+              onClick={() => setSyncError(null)}
+              aria-label="Dismiss sync error"
+              className="text-[var(--text-muted)] hover:text-[var(--text)] min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 -my-1 -mr-1"
+            >
+              <X strokeWidth={1.5} className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* In-App Alert Toast */}
         {alertToast && (

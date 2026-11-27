@@ -29,6 +29,19 @@ async function driveFetch(url: string, init: RequestInit, settingsClientId?: str
   return res;
 }
 
+async function formatDriveError(res: Response, fallback: string): Promise<string> {
+  const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+  const msg = err?.error?.message || fallback;
+  const lower = msg.toLowerCase();
+  if (lower.includes('has not been used in project') || lower.includes('is disabled')) {
+    return `${msg} — Google Drive API may still be propagating for project 804415406495. Wait 1–2 minutes and retry.`;
+  }
+  if (res.status === 403 && (lower.includes('insufficient') || lower.includes('scope'))) {
+    return `${msg} — Disconnect and reconnect Google, approving Drive AppData permission.`;
+  }
+  return msg;
+}
+
 export async function findDriveBackup(settingsClientId?: string): Promise<DriveBackupMetadata | null> {
   const qs = new URLSearchParams({
     spaces: 'appDataFolder',
@@ -40,8 +53,7 @@ export async function findDriveBackup(settingsClientId?: string): Promise<DriveB
 
   const res = await driveFetch(`${DRIVE_FILES_API}?${qs.toString()}`, { method: 'GET' }, settingsClientId);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to query Google Drive appDataFolder.');
+    throw new Error(await formatDriveError(res, 'Failed to query Google Drive appDataFolder.'));
   }
   const data = (await res.json()) as {
     files?: Array<{ id: string; name: string; modifiedTime?: string; size?: string }>;
@@ -92,8 +104,7 @@ export async function backupToGoogleDrive(settingsClientId?: string): Promise<Dr
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed uploading backup to Google Drive.');
+    throw new Error(await formatDriveError(res, 'Failed uploading backup to Google Drive.'));
   }
 
   const file = (await res.json()) as { id: string; name: string; modifiedTime?: string; size?: string };
@@ -116,8 +127,7 @@ export async function downloadDriveBackup(
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed downloading backup from Google Drive.');
+    throw new Error(await formatDriveError(res, 'Failed downloading backup from Google Drive.'));
   }
   return (await res.json()) as MachineBackupPayload;
 }

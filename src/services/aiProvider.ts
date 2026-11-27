@@ -152,6 +152,30 @@ function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs
   });
 }
 
+async function readApiJsonOrThrow(response: Response, fallbackMsg: string): Promise<Record<string, unknown>> {
+  const ct = (response.headers.get('content-type') || '').toLowerCase();
+  if (!ct.includes('application/json')) {
+    if (response.status === 404) {
+      throw new AIProviderError(
+        'AI backend route (/api/*) returned 404. Ensure Vercel deploys the /api serverless functions (vercel.json + api/[...path].ts) and redeploy.',
+        'API_ROUTE_MISSING'
+      );
+    }
+    throw new AIProviderError(
+      `AI server returned an unexpected response (HTTP ${response.status}). Check Vercel logs and GEMINI_API_KEY in Environment Variables.`,
+      'API_ROUTE_ERROR'
+    );
+  }
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    throw new AIProviderError(
+      typeof data.error === 'string' && data.error ? data.error : fallbackMsg,
+      typeof data.code === 'string' && data.code ? data.code : response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR'
+    );
+  }
+  return data;
+}
+
 export const aiProvider = {
   async streamChat(params: {
     message: string;
@@ -236,10 +260,31 @@ export const aiProvider = {
       });
 
       if (!response.ok) {
+        const ct = (response.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {
+          if (response.status === 404) {
+            throw new AIProviderError(
+              'AI Chat endpoint (/api/ai/chat) returned 404. Ensure Vercel deploys /api/[...path].ts and redeploy.',
+              'API_ROUTE_MISSING'
+            );
+          }
+          throw new AIProviderError(
+            `AI Chat server error (HTTP ${response.status}). Check GEMINI_API_KEY in Vercel Environment Variables.`,
+            'AI_ERROR'
+          );
+        }
         const errJson = await response.json().catch(() => ({}));
         throw new AIProviderError(
           errJson.error || 'Unable to reach THE MACHINE.',
           errJson.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
+        );
+      }
+
+      const contentType = (response.headers.get('content-type') || '').toLowerCase();
+      if (!contentType.includes('text/event-stream')) {
+        throw new AIProviderError(
+          'AI Chat endpoint did not return a live stream. Check that Vercel /api functions are deployed and GEMINI_API_KEY is configured.',
+          'API_ROUTE_MISSING'
         );
       }
 
@@ -346,13 +391,7 @@ export const aiProvider = {
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Failed to parse input.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Failed to parse input.');
 
     const validKinds = new Set(['task', 'note', 'reminder']);
     const validPriorities = new Set(['low', 'medium', 'high']);
@@ -416,13 +455,7 @@ export const aiProvider = {
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Document analysis failed.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Document analysis failed.');
 
     return {
       summary: typeof data.summary === 'string' ? data.summary : 'No summary generated.',
@@ -449,13 +482,7 @@ export const aiProvider = {
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Document Q&A failed.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Document Q&A failed.');
 
     return typeof data.answer === 'string' ? data.answer : 'No answer returned.';
   },
@@ -522,13 +549,7 @@ export const aiProvider = {
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Failed to generate daily briefing.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Failed to generate daily briefing.');
 
     return typeof data.content === 'string' ? data.content : '';
   },
@@ -555,13 +576,7 @@ export const aiProvider = {
       body: JSON.stringify(params),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Failed to triage inbox.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Failed to triage inbox.');
 
     const triaged: Record<
       string,
@@ -616,21 +631,17 @@ export const aiProvider = {
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Unable to parse calendar request.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Unable to parse calendar request.');
 
     const validActions = new Set(['create', 'update', 'cancel']);
-    const action = validActions.has(data.action) ? data.action : 'create';
-    const startIso = !Number.isNaN(Date.parse(data.startIso))
-      ? data.startIso
+    const action = validActions.has(String(data.action)) ? (String(data.action) as 'create' | 'update' | 'cancel') : 'create';
+    const rawStartIso = typeof data.startIso === 'string' ? data.startIso : '';
+    const rawEndIso = typeof data.endIso === 'string' ? data.endIso : '';
+    const startIso = !Number.isNaN(Date.parse(rawStartIso))
+      ? rawStartIso
       : new Date(Date.now() + 3600000).toISOString();
-    const endIso = !Number.isNaN(Date.parse(data.endIso))
-      ? data.endIso
+    const endIso = !Number.isNaN(Date.parse(rawEndIso))
+      ? rawEndIso
       : new Date(Date.parse(startIso) + 3600000).toISOString();
 
     return {
@@ -674,18 +685,13 @@ export const aiProvider = {
       body: JSON.stringify(params),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new AIProviderError(
-        data.error || 'Failed to analyze business message.',
-        data.code || (response.status === 429 ? 'RATE_LIMIT' : 'AI_ERROR')
-      );
-    }
+    const data = await readApiJsonOrThrow(response, 'Failed to analyze business message.');
 
-    const validUrgency = new Set(['high', 'medium', 'low']);
+    const validUrgency = new Set<UrgencyLevel>(['high', 'medium', 'low']);
+    const rawUrgency = String(data.urgency ?? 'medium') as UrgencyLevel;
     return {
       summary: String(data.summary ?? ''),
-      urgency: validUrgency.has(data.urgency) ? data.urgency : 'medium',
+      urgency: validUrgency.has(rawUrgency) ? rawUrgency : 'medium',
       detectedLanguage: String(data.detectedLanguage ?? 'English'),
       draftReply: String(data.draftReply ?? ''),
     };

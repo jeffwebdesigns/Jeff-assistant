@@ -7,6 +7,19 @@ import {
   type GoogleAuthSnapshot,
 } from '../services/googleAuth';
 
+function formatGoogleConnectError(err: unknown, fallback: string): string {
+  const msg = err instanceof Error ? err.message : fallback;
+  const lower = msg.toLowerCase();
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  if (lower.includes('origin_mismatch') || lower.includes('redirect_uri_mismatch')) {
+    return `Google OAuth blocked this domain (${origin}). Add ${origin} under Google Cloud Console → Credentials → OAuth 2.0 Client ID → Authorized JavaScript origins.`;
+  }
+  if (lower.includes('popup') || lower.includes('blocked')) {
+    return `${msg} If deployed on a custom/Vercel URL, verify ${origin} is listed in Google Cloud OAuth Authorized JavaScript origins and allow popups.`;
+  }
+  return msg;
+}
+
 export function useGoogleAuth(settingsClientId?: string) {
   const [snapshot, setSnapshot] = useState<GoogleAuthSnapshot>(() =>
     getGoogleAuthSnapshot(settingsClientId)
@@ -31,7 +44,7 @@ export function useGoogleAuth(settingsClientId?: string) {
     try {
       await connectGoogle(settingsClientId, 'select_account consent');
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Unable to connect Google.');
+      setAuthError(formatGoogleConnectError(err, 'Unable to connect Google.'));
     } finally {
       setIsConnecting(false);
     }
@@ -43,7 +56,7 @@ export function useGoogleAuth(settingsClientId?: string) {
     try {
       await connectGoogle(settingsClientId, 'select_account');
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Unable to reconnect Google.');
+      setAuthError(formatGoogleConnectError(err, 'Unable to reconnect Google.'));
     } finally {
       setIsConnecting(false);
     }
@@ -55,7 +68,7 @@ export function useGoogleAuth(settingsClientId?: string) {
     try {
       await connectGoogle(settingsClientId, 'select_account consent');
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Unable to switch Google account.');
+      setAuthError(formatGoogleConnectError(err, 'Unable to switch Google account.'));
     } finally {
       setIsConnecting(false);
     }

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Calendar,
   Check,
+  Copy,
   ExternalLink,
   Mail,
   Mic,
@@ -98,7 +99,9 @@ export const GoogleWorkspaceScreen: React.FC<GoogleWorkspaceScreenProps> = ({
   const [parsingCal, setParsingCal] = useState(false);
   const [proposal, setProposal] = useState<CalendarIntentProposal | null>(null);
   const [applyingCal, setApplyingCal] = useState(false);
+  const [originCopied, setOriginCopied] = useState(false);
 
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const isConnected = googleStatus === 'connected';
   const remainingMins = Math.max(1, Math.ceil(remainingSeconds / 60));
 
@@ -336,7 +339,30 @@ export const GoogleWorkspaceScreen: React.FC<GoogleWorkspaceScreenProps> = ({
         </div>
 
         {authError && (
-          <p className="text-xs text-[var(--error)] font-mono">{authError}</p>
+          <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--error)]/60 p-3 space-y-2">
+            <p className="text-xs text-[var(--error)] font-mono break-words">{authError}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(currentOrigin);
+                  setOriginCopied(true);
+                  window.setTimeout(() => setOriginCopied(false), 2000);
+                }}
+                className="min-h-[44px] px-3 machine-btn-secondary text-xs font-mono flex items-center gap-1.5"
+              >
+                <Copy strokeWidth={1.5} className="w-3.5 h-3.5" />
+                <span>{originCopied ? 'Copied Origin' : `Copy ${currentOrigin}`}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('settings')}
+                className="min-h-[44px] px-3 machine-btn-ghost text-xs font-mono text-[var(--gold-300)]"
+              >
+                Open Deployment Check
+              </button>
+            </div>
+          </div>
         )}
 
         {googleStatus !== 'connected' && (

@@ -10,8 +10,12 @@ import {
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+const FIRESTORE_DB_ID =
+  (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
+  'ai-studio-themachine-50b7aa6b-491b-415a-a181-e9f6124a8363';
+
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, FIRESTORE_DB_ID);
 export const auth = getAuth(app);
 
 export enum OperationType {

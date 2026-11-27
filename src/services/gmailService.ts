@@ -84,6 +84,21 @@ async function gmailFetch(path: string, init: RequestInit, settingsClientId?: st
   return res;
 }
 
+async function formatGmailError(res: Response, fallback: string): Promise<string> {
+  const err = (await res.json().catch(() => ({}))) as {
+    error?: { message?: string; status?: string };
+  };
+  const msg = err?.error?.message || fallback;
+  const lower = msg.toLowerCase();
+  if (lower.includes('has not been used in project') || lower.includes('is disabled')) {
+    return `${msg} — Gmail API was recently enabled for project 804415406495. If this persists after 2 minutes, verify Gmail API is enabled in Google Cloud Console.`;
+  }
+  if (res.status === 403 && (lower.includes('insufficient') || lower.includes('scope'))) {
+    return `${msg} — Tap "Switch Account" or "Disconnect", reconnect Google, and check all Gmail/Calendar/Drive permissions.`;
+  }
+  return msg;
+}
+
 export async function fetchAndTriageRecentInbox(params: {
   displayName: string;
   settingsClientId?: string;
@@ -97,8 +112,7 @@ export async function fetchAndTriageRecentInbox(params: {
   );
 
   if (!listRes.ok) {
-    const err = await listRes.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to list Gmail messages.');
+    throw new Error(await formatGmailError(listRes, 'Failed to list Gmail messages.'));
   }
 
   const listData = (await listRes.json()) as { messages?: Array<{ id: string }> };
@@ -211,8 +225,7 @@ export async function createGmailDraft(params: {
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to save Gmail draft.');
+    throw new Error(await formatGmailError(res, 'Failed to save Gmail draft.'));
   }
   const data = (await res.json()) as { id?: string };
   return data.id ?? '';
@@ -240,8 +253,7 @@ export async function sendApprovedGmail(params: {
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Failed to send email via Gmail.');
+    throw new Error(await formatGmailError(res, 'Failed to send email via Gmail.'));
   }
   const data = (await res.json()) as { id?: string };
   return data.id ?? '';

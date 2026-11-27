@@ -326,7 +326,8 @@ export function useSpeech() {
           });
           window.clearTimeout(ttsTimer);
 
-          if (!resp.ok) {
+          const ct = (resp.headers.get('content-type') || '').toLowerCase();
+          if (!resp.ok || (!ct.includes('audio') && !ct.includes('octet-stream'))) {
             throw new Error(`TTS HTTP ${resp.status}`);
           }
 
