@@ -22,6 +22,7 @@ import {
   type MachineBackupPayload,
   type MachineSettings,
   type TeachingDepth,
+  type TeachingFocus,
 } from '../types/machine';
 import { getTranslations } from '../i18n/translations';
 import { dbStorage, hashPin } from '../db/storage';
@@ -61,6 +62,8 @@ interface SettingsScreenProps {
   onUpdateSettings: (next: MachineSettings) => Promise<void>;
   teachingDepth?: TeachingDepth;
   onChangeTeachingDepth?: (depth: TeachingDepth) => void;
+  teachingFocus?: TeachingFocus;
+  onChangeTeachingFocus?: (focus: TeachingFocus) => void;
   onLockNow: () => void;
   onDataReloaded: () => Promise<void>;
 }
@@ -84,6 +87,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onUpdateSettings,
   teachingDepth,
   onChangeTeachingDepth,
+  teachingFocus,
+  onChangeTeachingFocus,
   onLockNow,
   onDataReloaded,
 }) => {
@@ -474,23 +479,44 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
           </div>
 
-          {teachingDepth && onChangeTeachingDepth && (
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">
-                Technical Instructor Default Depth
-              </label>
-              <select
-                value={teachingDepth}
-                onChange={(e) => onChangeTeachingDepth(e.target.value as TeachingDepth)}
-                className="w-full min-h-[44px] machine-input px-3.5 text-sm"
-              >
-                <option value="foundational">Foundational (First principles, terminology &amp; prerequisites)</option>
-                <option value="intermediate">Intermediate (Protocol mechanics, methodology &amp; lab workflows)</option>
-                <option value="advanced">Advanced (Low-level internals, trade-offs &amp; failure analysis)</option>
-                <option value="expert">Expert (Research-grade edge cases, forensics &amp; countermeasures)</option>
-              </select>
+          {(teachingDepth && onChangeTeachingDepth) || (teachingFocus && onChangeTeachingFocus) ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {teachingDepth && onChangeTeachingDepth && (
+                <div>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">
+                    Technical Research Default Depth
+                  </label>
+                  <select
+                    value={teachingDepth}
+                    onChange={(e) => onChangeTeachingDepth(e.target.value as TeachingDepth)}
+                    className="w-full min-h-[44px] machine-input px-3.5 text-sm"
+                  >
+                    <option value="foundational">Foundational (First principles, terminology &amp; prerequisites)</option>
+                    <option value="intermediate">Intermediate (Protocol mechanics, methodology &amp; lab workflows)</option>
+                    <option value="advanced">Advanced (Low-level internals, trade-offs &amp; failure analysis)</option>
+                    <option value="expert">Expert (Research-grade edge cases, forensics &amp; countermeasures)</option>
+                  </select>
+                </div>
+              )}
+
+              {teachingFocus && onChangeTeachingFocus && (
+                <div>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">
+                    Practical Learning Lab Focus
+                  </label>
+                  <select
+                    value={teachingFocus}
+                    onChange={(e) => onChangeTeachingFocus(e.target.value as TeachingFocus)}
+                    className="w-full min-h-[44px] machine-input px-3.5 text-sm"
+                  >
+                    <option value="full">10-Stage Full Curriculum (Balanced theory, lab &amp; countermeasures)</option>
+                    <option value="lab_vm">Isolated VM &amp; Simulation Lab (Exercises, datasets &amp; scripts)</option>
+                    <option value="forensics_defense">Forensics, Tracing &amp; Countermeasures (Artifacts &amp; mitigation)</option>
+                  </select>
+                </div>
+              )}
             </div>
-          )}
+          ) : null}
 
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">

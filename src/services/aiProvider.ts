@@ -15,6 +15,7 @@ import type {
   ReminderItem,
   TaskItem,
   TeachingDepth,
+  TeachingFocus,
   UrgencyLevel,
 } from '../types/machine';
 import { createId } from '../db/storage';
@@ -182,6 +183,7 @@ export const aiProvider = {
     message: string;
     mode?: ChatMode;
     teachingDepth?: TeachingDepth;
+    teachingFocus?: TeachingFocus;
     history: ChatMessage[];
     settings: MachineSettings;
     activeUserEmail?: string | null;
@@ -203,6 +205,7 @@ export const aiProvider = {
 
     const mode: ChatMode = params.mode ?? 'auto';
     const teachingDepth: TeachingDepth = params.teachingDepth ?? 'advanced';
+    const teachingFocus: TeachingFocus = params.teachingFocus ?? 'full';
     const { dateStr, timeStr } = formatNairobiDateTime(new Date(), params.settings.timezone);
     const localContext = buildLocalContextSummary({
       query: params.message,
@@ -258,6 +261,7 @@ export const aiProvider = {
           message: params.message,
           mode,
           teachingDepth,
+          teachingFocus,
           history: params.history.slice(-16).map((h) => ({ role: h.role, content: h.content })),
           systemPrompt: params.settings.systemPrompt,
           displayName: params.settings.displayName,

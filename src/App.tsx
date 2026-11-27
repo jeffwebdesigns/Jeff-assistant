@@ -66,6 +66,7 @@ import {
   type TaskItem,
   type TaskStatus,
   type TeachingDepth,
+  type TeachingFocus,
 } from './types/machine';
 import { PinLockScreen } from './components/PinLockScreen';
 import { OfflineBanner, PWAInstallButton } from './components/PWAInstallButton';
@@ -128,6 +129,14 @@ export default function App() {
         : 'advanced';
     } catch {
       return 'advanced';
+    }
+  });
+  const [teachingFocus, setTeachingFocus] = useState<TeachingFocus>(() => {
+    try {
+      const saved = localStorage.getItem('machine_teaching_focus');
+      return saved === 'lab_vm' || saved === 'forensics_defense' ? saved : 'full';
+    } catch {
+      return 'full';
     }
   });
   const [isThinking, setIsThinking] = useState(false);
@@ -683,6 +692,15 @@ export default function App() {
     }
   }, []);
 
+  const handleChangeTeachingFocus = useCallback((nextFocus: TeachingFocus) => {
+    setTeachingFocus(nextFocus);
+    try {
+      localStorage.setItem('machine_teaching_focus', nextFocus);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const handleSendChat = useCallback(
     async (text: string, overrideMode?: ChatMode) => {
       const trimmed = text.trim();
@@ -728,6 +746,7 @@ export default function App() {
           message: trimmed,
           mode: activeMode,
           teachingDepth,
+          teachingFocus,
           history: historyBefore,
           settings,
           activeUserEmail: cloudUserRef.current?.email ?? null,
@@ -788,7 +807,7 @@ export default function App() {
         }
       }
     },
-    [businessMessages, calendarEvents, chatMode, documents, emailSummaries, notes, pushItemToCloud, recordActivity, reminders, settings, t.chat.rateLimitMsg, tasks, teachingDepth, activityLogs, deviceTelemetry]
+    [businessMessages, calendarEvents, chatMode, documents, emailSummaries, notes, pushItemToCloud, recordActivity, reminders, settings, t.chat.rateLimitMsg, tasks, teachingDepth, teachingFocus, activityLogs, deviceTelemetry]
   );
 
   const handleRetryLast = async () => {
@@ -816,6 +835,7 @@ export default function App() {
         message: prompt,
         mode: lastChatModeRef.current,
         teachingDepth,
+        teachingFocus,
         history: cleanHistory,
         settings,
         activeUserEmail: cloudUserRef.current?.email ?? null,
@@ -1143,6 +1163,7 @@ export default function App() {
                 notes={notes}
                 chatMode={chatMode}
                 teachingDepth={teachingDepth}
+                teachingFocus={teachingFocus}
                 isThinking={isThinking}
                 streamingText={streamingText}
                 rateLimitMessage={rateLimitMessage}
@@ -1151,6 +1172,7 @@ export default function App() {
                 onConsumePendingPrompt={() => setPendingChatPrompt(null)}
                 onChangeChatMode={handleChangeChatMode}
                 onChangeTeachingDepth={handleChangeTeachingDepth}
+                onChangeTeachingFocus={handleChangeTeachingFocus}
                 onSendMessage={handleSendChat}
                 onCancelStream={handleCancelChat}
                 onRetryLast={handleRetryLast}
@@ -1361,6 +1383,8 @@ export default function App() {
                 onUpdateSettings={handleUpdateSettings}
                 teachingDepth={teachingDepth}
                 onChangeTeachingDepth={handleChangeTeachingDepth}
+                teachingFocus={teachingFocus}
+                onChangeTeachingFocus={handleChangeTeachingFocus}
                 onLockNow={() => setUnlocked(false)}
                 onDataReloaded={loadAllFromIndexedDB}
               />

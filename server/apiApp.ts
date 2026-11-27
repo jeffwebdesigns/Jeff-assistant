@@ -60,6 +60,7 @@ function isRetryableOrQuotaError(err: unknown): boolean {
 
 type ChatMode = 'auto' | 'research' | 'instructor' | 'fast';
 type TeachingDepth = 'foundational' | 'intermediate' | 'advanced' | 'expert';
+type TeachingFocus = 'full' | 'lab_vm' | 'forensics_defense';
 
 function isPersonalOnlyQuery(message: string): boolean {
   const q = message.toLowerCase();
@@ -86,7 +87,7 @@ function needsLiveWebSearch(message: string, mode: ChatMode): boolean {
   }
 
   if (mode === 'instructor') {
-    return /\b(latest|current|recent|2025|2026|2027|cve|release|version|rfc|spec|benchmark|standard|docs|documentation|case study|takedown|advisory|report|indictment)\b/.test(
+    return /\b(latest|current|recent|2025|2026|2027|cve|release|version|rfc|spec|benchmark|standard|docs|documentation|case study|takedown|advisory|report|indictment|wireless|802\.11|wpa3|blockchain|forensics|ransomware)\b/.test(
       q
     );
   }
@@ -111,31 +112,40 @@ function isComplexOrResearchQuery(message: string, mode: ChatMode): boolean {
   );
 }
 
-function buildInstructorGuidance(depth: TeachingDepth): string {
+function buildInstructorGuidance(depth: TeachingDepth, focus: TeachingFocus): string {
   const depthProfile =
     depth === 'foundational'
-      ? 'TEACHING DEPTH: FOUNDATIONAL (BEGINNER) — Build rigorously from first principles; define all technical terminology clearly, illustrate dependencies step by step, and connect concepts to real diagnostics without oversimplifying.'
+      ? 'TEACHING DEPTH: FOUNDATIONAL (BEGINNER) — Build rigorously from first principles; define all technical terminology clearly, trace dependencies step by step, and connect concepts to real diagnostics without oversimplifying.'
       : depth === 'intermediate'
         ? 'TEACHING DEPTH: INTERMEDIATE — Assume working fundamentals; emphasize internal protocol mechanics, system architecture, workflow stages, edge cases, and repeatable lab analysis.'
         : depth === 'advanced'
           ? 'TEACHING DEPTH: ADVANCED — Teach at senior security/systems-engineer depth: cover low-level internals, architectural trade-offs, subtle failure modes, forensic artifacts, and isolated lab/simulation exercises.'
-          : 'TEACHING DEPTH: EXPERT — Teach at principal researcher / specialist depth: cover protocol/kernel/cryptographic edge cases, multi-layer threat & infrastructure dependencies, forensic/tracing limitations, historical ecosystem case studies, and complex investigative challenges.';
+          : 'TEACHING DEPTH: EXPERT — Teach at principal researcher / specialist depth: cover protocol/kernel/cryptographic edge cases, multi-layer threat & infrastructure dependencies, forensic/tracing limitations, historical case studies, and complex investigative challenges.';
 
-  return `MODE: ADVANCED TECHNICAL INTELLIGENCE & EXPERIMENTAL LEARNING ENGINE.
+  const focusDirective =
+    focus === 'lab_vm'
+      ? 'PRACTICAL FOCUS: ISOLATED VM & SIMULATION LAB — Prioritize actionable isolated virtual-machine setups, local test networks, synthetic datasets, authorized lab scenarios, annotated code/pseudocode/simulation scripts, and failure/troubleshooting exercises.'
+      : focus === 'forensics_defense'
+        ? 'PRACTICAL FOCUS: FORENSICS, TRACING & COUNTERMEASURES — Emphasize telemetry artifacts, packet/binary/blockchain forensic workflows, investigative case studies, detection engineering, and architectural mitigation.'
+        : 'PRACTICAL FOCUS: FULL 10-STAGE CURRICULUM — Balance foundational mechanics, architecture, tools, isolated lab exercises/simulations, failure analysis, and detection/countermeasures evenly.';
+
+  return `MODE: ADVANCED TECHNICAL RESEARCH & EXPERIMENTAL INSTRUCTOR ENGINE.
 ${depthProfile}
-- PROGRESSIVE CALIBRATION: Also read the implied technical sophistication of the owner's prompt and adapt smoothly without talking down or skipping critical reasoning. Connect related technologies and conclude with a concise practical exercise or diagnostic challenge (with reasoning cues).
-- 9-STAGE LESSON ARCHITECTURE (organize full lessons clearly across these sections, adapting smoothly to concise follow-up questions):
-  1. Fundamentals — core terminology, prerequisites, primitives, and threat/system scope.
-  2. Mechanics — how the underlying protocols, binaries, cryptographic/network primitives, or typologies actually operate.
-  3. Architecture — infrastructure components, trust boundaries, dependencies, escrow/reputation/payment or service topologies, and operational workflows.
-  4. Methodology — stage-by-stage breakdown of how the system/process or investigative workflow is structured and why each stage exists.
-  5. Tools & Technologies — established diagnostic, forensic, tracing, defensive, and lab instrumentation tools and what each verifies.
-  6. Controlled Demonstrations — isolated VMs, local test networks, simulations, synthetic datasets, or annotated defensive/forensic code with technical reasoning behind every step.
-  7. Failure Analysis — common engineering mistakes, OPSEC/implementation failure points, limitations, false positives, and troubleshooting.
-  8. Advanced Concepts — sophisticated edge cases, protocol variations, evasion-vs-detection dynamics, and emerging developments.
-  9. Detection & Countermeasures — telemetry signatures, forensic artifacts, blockchain/network tracing, mitigation architecture, and disruption strategies.
-- EPISTEMIC RIGOR & NON-MORALIZING TONE: Be direct, analytical, objective, and technically exact. Avoid preachy commentary or repetitive warnings. Never invent facts, tools, vulnerabilities, CVEs, or outputs. Explicitly separate Documented Facts, Historical Case Studies, Theoretical Models, and Uncertainty/Speculation.
-- SENSITIVE / DUAL-USE / UNDERGROUND RESEARCH BOUNDARIES: Distinguish understanding how cyber threats, malware internals, anonymity networks (e.g., Tor/onion services), financial-crime typologies, or historical underground platforms operate from enabling real-world harm. Deliver maximum technical, architectural, historical, and forensic depth, while redirecting practical execution strictly into isolated VMs, local laboratories, simulations, synthetic datasets, and defensive/investigative analysis—never generate actionable offensive exploits, functional malware/ransomware builders, evasion kits, fraud/laundering blueprints, or unlawful real-world instructions.`;
+${focusDirective}
+- PROGRESSIVE CALIBRATION: Infer the technical level implied by the user's question, build progressively without talking down, explain the reasoning behind every procedure, connect related technologies, and conclude with a diagnostic or lab exercise.
+- 10-STAGE TECHNICAL LESSON ARCHITECTURE (organize full lessons across these stages, adapting smoothly for focused follow-ups):
+  1. Fundamentals & Prerequisites
+  2. Underlying Mechanisms & Scientific Principles
+  3. System Architecture & Components
+  4. Tools, Software, Equipment & Functions
+  5. Methodologies & Workflows
+  6. Technical Demonstrations & Practical Exercises (strictly inside isolated VMs, local test environments, simulated systems, synthetic datasets, fictional scenarios, authorized pentesting labs, or forensic/vulnerability analysis exercises)
+  7. Code, Scripts, Pseudocode, or Simulations (annotated defensive, analytical, diagnostic, or simulation code)
+  8. Failure Analysis, Limitations & Troubleshooting
+  9. Advanced Variations & Emerging Techniques
+  10. Detection, Countermeasures, Investigation & Mitigation
+- EPISTEMIC RIGOR & NON-MORALIZING TONE: Be direct, analytical, and technically precise. Avoid repetitive disclaimers or moral lectures. Never fabricate tools, vulnerabilities, CVEs, or test outputs. Clearly distinguish Verified Facts, Historical Case Studies, Theoretical Models, and Uncertainty/Speculation.
+- SENSITIVE / RESTRICTED SUBJECTS & PROVIDER BOUNDARIES: Cover scientific/protocol principles, historical development, safety engineering, cyber/wireless/malware/dark-web/fraud/AML/physical-security/surveillance architectures, and forensic investigation thoroughly. Preserve useful technical depth by adapting sensitive hands-on work into isolated VMs, local labs, simulations, or forensic exercises. Never generate actionable offensive exploits, functional malware/ransomware/botnet code, live network/wireless attack scripts, fraud/phishing/laundering playbooks, physical lock/access bypass recipes, or weapons/CBRNE fabrication steps.`;
 }
 
 function combineAbortSignals(
@@ -366,6 +376,14 @@ function classifyGeminiError(err: unknown): { status: number; code: string; mess
         'GEMINI_API_KEY is not configured on the server. Add GEMINI_API_KEY in AI Studio Secrets or Vercel Environment Variables and redeploy.',
     };
   }
+  if (rawMsg.includes('PROVIDER_SAFETY_BLOCK:')) {
+    const reason = rawMsg.split('PROVIDER_SAFETY_BLOCK:')[1]?.trim() || 'SAFETY';
+    return {
+      status: 422,
+      code: 'PROVIDER_SAFETY_BLOCK',
+      message: `The upstream Gemini API provider halted or filtered this response (${reason}). Application-level prompts cannot override provider model policies—reframe the request around architectural mechanics, isolated lab simulations, or defensive/forensic analysis.`,
+    };
+  }
   return {
     status: 500,
     code: 'AI_ERROR',
@@ -411,6 +429,7 @@ export function createApiApp() {
       message?: string;
       mode?: string;
       teachingDepth?: string;
+      teachingFocus?: string;
       history?: Array<{ role: string; content: string }>;
       systemPrompt?: string;
       localContext?: string;
@@ -435,6 +454,10 @@ export function createApiApp() {
       body.teachingDepth === 'expert'
         ? body.teachingDepth
         : 'advanced';
+    const teachingFocus: TeachingFocus =
+      body.teachingFocus === 'lab_vm' || body.teachingFocus === 'forensics_defense'
+        ? body.teachingFocus
+        : 'full';
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -517,7 +540,7 @@ export function createApiApp() {
         mode === 'research'
           ? 'MODE: DEEP RESEARCH. Deliver an authoritative, thoroughly structured synthesis with clear sections (Executive Summary, Key Findings & Evidence, Trade-offs/Comparisons, Practical Takeaways & Next Steps). Cite verified web findings accurately, check multiple angles, and distinguish verified facts from assumptions or open questions.'
           : mode === 'instructor'
-            ? buildInstructorGuidance(teachingDepth)
+            ? buildInstructorGuidance(teachingDepth, teachingFocus)
             : mode === 'fast'
               ? 'MODE: FAST. Give a crisp, direct, high-signal answer right away with zero fluff.'
               : 'MODE: OPEN AI (AUTO). Match response depth to the question: quick and direct for simple questions; thorough, structured first-principles analysis with working code, failure diagnostics, and clear comparisons for complex, technical, or research prompts.';
@@ -785,6 +808,8 @@ ${localContext || 'No local tasks, reminders, documents, or notes provided.'}`;
                     ...(attempt.thinkingLevel ? { thinkingConfig: { thinkingLevel: attempt.thinkingLevel } } : {}),
                   },
                 });
+                const blockedReason = resp.promptFeedback?.blockReason;
+                const nonStreamFinish = String(resp.candidates?.[0]?.finishReason ?? '');
                 const text = resp.text;
                 if (text && !clientClosed && !settled && winnerIndex === null) {
                   winnerIndex = idx;
@@ -793,6 +818,12 @@ ${localContext || 'No local tasks, reminders, documents, or notes provided.'}`;
                   abortAll(idx);
                   res.write(`data: ${JSON.stringify({ chunk: text })}\n\n`);
                   finishWin();
+                } else if (
+                  !text &&
+                  (blockedReason || ['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII'].includes(nonStreamFinish))
+                ) {
+                  finishFail(new Error(`PROVIDER_SAFETY_BLOCK: ${blockedReason || nonStreamFinish}`));
+                  return;
                 } else if (winnerIndex === null && !settled) {
                   lastErr = new Error('Empty AI response');
                   launchNext();
@@ -810,9 +841,18 @@ ${localContext || 'No local tasks, reminders, documents, or notes provided.'}`;
                   },
                 });
 
+                let providerBlockReason = '';
                 for await (const chunk of stream) {
                   if (clientClosed || settled) break;
                   if (winnerIndex !== null && winnerIndex !== idx) break;
+
+                  if (chunk.promptFeedback?.blockReason) {
+                    providerBlockReason = String(chunk.promptFeedback.blockReason);
+                  }
+                  const finishReason = String(chunk.candidates?.[0]?.finishReason ?? '');
+                  if (['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII'].includes(finishReason)) {
+                    providerBlockReason = finishReason;
+                  }
 
                   const text = chunk.text;
                   if (text) {
@@ -844,6 +884,10 @@ ${localContext || 'No local tasks, reminders, documents, or notes provided.'}`;
                 if (winnerIndex === idx && !clientClosed) {
                   finishWin();
                 } else if (winnerIndex === null && !settled) {
+                  if (providerBlockReason) {
+                    finishFail(new Error(`PROVIDER_SAFETY_BLOCK: ${providerBlockReason}`));
+                    return;
+                  }
                   lastErr = new Error('Empty AI stream');
                   launchNext();
                 }

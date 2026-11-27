@@ -25,6 +25,7 @@ import type {
   ReminderItem,
   TaskItem,
   TeachingDepth,
+  TeachingFocus,
 } from '../types/machine';
 import { getTranslations } from '../i18n/translations';
 import { formatTimeOnly } from '../utils/datetime';
@@ -39,6 +40,7 @@ interface AIChatScreenProps {
   notes: NoteItem[];
   chatMode: ChatMode;
   teachingDepth: TeachingDepth;
+  teachingFocus: TeachingFocus;
   isThinking: boolean;
   streamingText: string;
   rateLimitMessage: string | null;
@@ -47,6 +49,7 @@ interface AIChatScreenProps {
   onConsumePendingPrompt: () => void;
   onChangeChatMode: (mode: ChatMode) => void;
   onChangeTeachingDepth: (depth: TeachingDepth) => void;
+  onChangeTeachingFocus: (focus: TeachingFocus) => void;
   onSendMessage: (text: string, overrideMode?: ChatMode) => Promise<void>;
   onCancelStream: () => void;
   onRetryLast: () => Promise<void>;
@@ -75,8 +78,8 @@ const MODE_OPTIONS: Array<{
   },
   {
     id: 'instructor',
-    label: 'Instructor',
-    desc: '9-part technical engine, architecture & lab demos',
+    label: 'Tech Research',
+    desc: '10-stage technical instructor, architecture & isolated lab exercises',
     icon: GraduationCap,
   },
   {
@@ -94,6 +97,12 @@ const DEPTH_OPTIONS: Array<{ id: TeachingDepth; label: string }> = [
   { id: 'expert', label: 'Expert' },
 ];
 
+const FOCUS_OPTIONS: Array<{ id: TeachingFocus; label: string }> = [
+  { id: 'full', label: '10-Stage Full' },
+  { id: 'lab_vm', label: 'Isolated VM / Sim' },
+  { id: 'forensics_defense', label: 'Forensics & Defense' },
+];
+
 const STARTER_PROMPTS: Array<{
   title: string;
   subtitle: string;
@@ -102,8 +111,8 @@ const STARTER_PROMPTS: Array<{
   icon: typeof Compass;
 }> = [
   {
-    title: 'Technical Lesson',
-    subtitle: '9-part mechanics, architecture, lab demo & countermeasures',
+    title: 'Technical Research',
+    subtitle: '10-stage mechanics, architecture, VM lab & countermeasures',
     prompt:
       'Teach me how Tor v3 onion-service rendezvous architecture, directory authorities, and traffic-correlation limitations work—including an isolated local test simulation concept, OPSEC failure analysis, and detection/countermeasures.',
     mode: 'instructor',
@@ -143,6 +152,7 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
   notes,
   chatMode,
   teachingDepth,
+  teachingFocus,
   isThinking,
   streamingText,
   rateLimitMessage,
@@ -151,6 +161,7 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
   onConsumePendingPrompt,
   onChangeChatMode,
   onChangeTeachingDepth,
+  onChangeTeachingFocus,
   onSendMessage,
   onCancelStream,
   onRetryLast,
@@ -361,32 +372,61 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
           })}
         </div>
 
-        {/* Adaptive Teaching Depth Row when Instructor mode is active */}
+        {/* Adaptive Teaching Depth & Lab Focus Row when Tech Research mode is active */}
         {chatMode === 'instructor' && (
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--gold-500)]">
-              Adaptive Depth
-            </span>
-            <div className="flex items-center gap-1.5" role="group" aria-label="Teaching Depth">
-              {DEPTH_OPTIONS.map((opt) => {
-                const active = teachingDepth === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    disabled={isThinking}
-                    aria-pressed={active}
-                    onClick={() => onChangeTeachingDepth(opt.id)}
-                    className={`min-h-[36px] px-3 rounded-lg border text-[11px] font-mono transition disabled:opacity-60 ${
-                      active
-                        ? 'bg-[var(--surface)] border-[var(--gold-500)] text-[var(--gold-300)]'
-                        : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--gold-700)]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
+          <div className="space-y-1.5 pt-0.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--gold-500)]">
+                Adaptive Depth
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Teaching Depth">
+                {DEPTH_OPTIONS.map((opt) => {
+                  const active = teachingDepth === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={isThinking}
+                      aria-pressed={active}
+                      onClick={() => onChangeTeachingDepth(opt.id)}
+                      className={`min-h-[36px] px-3 rounded-lg border text-[11px] font-mono transition disabled:opacity-60 ${
+                        active
+                          ? 'bg-[var(--surface)] border-[var(--gold-500)] text-[var(--gold-300)]'
+                          : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--gold-700)]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
+                Lab Focus
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Practical Lab Focus">
+                {FOCUS_OPTIONS.map((opt) => {
+                  const active = teachingFocus === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={isThinking}
+                      aria-pressed={active}
+                      onClick={() => onChangeTeachingFocus(opt.id)}
+                      className={`min-h-[34px] px-2.5 rounded-lg border text-[11px] font-mono transition disabled:opacity-60 ${
+                        active
+                          ? 'bg-[var(--surface)] border-[var(--gold-500)] text-[var(--gold-300)]'
+                          : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--gold-700)]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -529,7 +569,13 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
                     {chatMode === 'research'
                       ? 'Deep Research active (searching & synthesizing)...'
                       : chatMode === 'instructor'
-                        ? `Technical Instructor (${teachingDepth}) structuring lesson...`
+                        ? `Tech Research (${teachingDepth} · ${
+                            teachingFocus === 'lab_vm'
+                              ? 'VM/Lab'
+                              : teachingFocus === 'forensics_defense'
+                                ? 'Forensics'
+                                : '10-Stage'
+                          }) structuring analysis...`
                         : t.chat.thinking}
                   </span>
                 </div>
