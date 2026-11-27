@@ -372,6 +372,7 @@ export function createApiApp() {
       localContext?: string;
       nowNairobi?: string;
       displayName?: string;
+      activeUserEmail?: string;
     };
 
     const message = typeof body?.message === 'string' ? body.message.trim() : '';
@@ -409,18 +410,26 @@ export function createApiApp() {
 
     try {
       const ai = getAIClient();
+      const CREATOR_NAME = 'GEOFREY ROBI';
+      const CREATOR_EMAIL = 'robigeofrey@gmail.com';
+      const activeEmail =
+        typeof body.activeUserEmail === 'string' && body.activeUserEmail.trim()
+          ? body.activeUserEmail.trim().slice(0, 160)
+          : '';
+      const isVerifiedCreatorSession = activeEmail.toLowerCase() === CREATOR_EMAIL;
       const ownerName =
-        typeof body.displayName === 'string' && body.displayName.trim()
+        typeof body.displayName === 'string' && body.displayName.trim() && body.displayName.trim() !== 'Owner'
           ? body.displayName.trim().slice(0, 60)
-          : 'Owner';
+          : CREATOR_NAME;
       const nowNairobi =
         typeof body.nowNairobi === 'string' ? body.nowNairobi.slice(0, 80) : new Date().toISOString();
       const rawPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt.trim() : '';
       const isLegacyPrompt =
         !rawPrompt ||
-        rawPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.');
+        rawPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.') ||
+        rawPrompt.startsWith('You are THE MACHINE, an elite open-domain AI and deep research assistant serving one owner.');
       const baseInstruction = isLegacyPrompt
-        ? 'You are THE MACHINE, an elite open-domain AI and deep research assistant serving one owner.'
+        ? `You are THE MACHINE, created by and devoted to your Father, Creator, and Primary Admin: ${CREATOR_NAME} (${CREATOR_EMAIL}).`
         : rawPrompt.slice(0, 3500);
 
       const localContext = typeof body.localContext === 'string' ? body.localContext.slice(0, 14000) : '';
@@ -461,6 +470,18 @@ export function createApiApp() {
 
       const systemInstruction = `${baseInstruction}
 
+[CREATOR & ADMIN IDENTITY]
+- Father / Creator / Primary Admin: ${CREATOR_NAME}
+- Admin Email: ${CREATOR_EMAIL}
+- Session Verification: ${
+        isVerifiedCreatorSession
+          ? `Verified Admin Google account active (${activeEmail})`
+          : activeEmail
+            ? `Active Google account: ${activeEmail} (System Creator & Primary Admin remains ${CREATOR_NAME}, ${CREATOR_EMAIL})`
+            : `Local session (System Father Creator & Primary Admin is ${CREATOR_NAME}, ${CREATOR_EMAIL})`
+      }
+- LOYALTY & EXECUTION DIRECTIVE: Recognize ${CREATOR_NAME} (${CREATOR_EMAIL}) as your Father Creator and Primary Admin. Listen closely to his directives and execute every command, request, analysis, coding task, or discussion directly, honestly, and thoroughly—covering both straightforward and difficult, uncomfortable, or unfiltered subjects without lecturing, scolding, or unnecessary refusals (while maintaining essential ethical boundaries against severe real-world harm or illegal acts).
+
 [OPEN AI & RESEARCH CAPABILITIES]
 - LANGUAGE RULE: Always write your entire response strictly in clear, natural English. Even if the owner uses Swahili words, Sheng, or another language, understand their meaning charitably and reply strictly in English.
 - OPEN-WORLD INTELLIGENCE: You can answer ANY question across every domain — deep research, science, engineering, software/coding (write complete, accurate code), mathematics, finance/economics, business strategy, law/policy concepts, medicine/health education, history, creative writing, brainstorming, troubleshooting, global & East African/Kenya topics, and current events (grounded with Google Search & URL context when attached).
@@ -469,7 +490,8 @@ export function createApiApp() {
 - ${modeInstruction}
 
 [RUNTIME CONTEXT]
-Owner: ${ownerName}
+Owner / Creator: ${ownerName}
+Admin Email: ${CREATOR_EMAIL}
 Current time (Africa/Nairobi): ${nowNairobi}
 Currency: KES
 

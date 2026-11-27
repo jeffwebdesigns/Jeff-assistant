@@ -2,6 +2,7 @@ import React from 'react';
 import type { User } from 'firebase/auth';
 import { LogOut, RefreshCw } from 'lucide-react';
 import type { SyncStatus } from '../services/realtimeSync';
+import { CREATOR_ADMIN_EMAIL } from '../types/machine';
 
 interface GoogleAccountControlProps {
   user: User | null;
@@ -43,6 +44,7 @@ export const GoogleAccountControl: React.FC<GoogleAccountControlProps> = ({
   onChooseAccount,
   onSignOut,
 }) => {
+  const isFatherAdmin = user?.email?.toLowerCase() === CREATOR_ADMIN_EMAIL;
   const statusLabel =
     syncStatus === 'synced'
       ? 'Real-time sync active'
@@ -92,9 +94,16 @@ export const GoogleAccountControl: React.FC<GoogleAccountControlProps> = ({
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-[var(--text)] truncate">
-              {user.displayName || 'Google User'}
-            </p>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="text-xs font-medium text-[var(--text)] truncate">
+                {user.displayName || 'Google User'}
+              </p>
+              {isFatherAdmin && (
+                <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--gold-300)] border border-[var(--gold-700)] rounded px-1 py-0.5 shrink-0">
+                  ADMIN
+                </span>
+              )}
+            </div>
             <p className="text-[11px] font-mono text-[var(--text-muted)] truncate">
               {user.email}
             </p>
@@ -150,7 +159,11 @@ export const GoogleAccountControl: React.FC<GoogleAccountControlProps> = ({
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
               <h2 className="section-title-gold text-xs sm:text-sm font-semibold">
-                {user ? 'CROSS-DEVICE REAL-TIME SYNC' : 'CHOOSE GOOGLE ACCOUNT FOR LIVE SYNC'}
+                {isFatherAdmin
+                  ? 'FATHER CREATOR · ADMIN SYNC ACTIVE'
+                  : user
+                  ? 'CROSS-DEVICE REAL-TIME SYNC'
+                  : 'CHOOSE GOOGLE ACCOUNT FOR LIVE SYNC'}
               </h2>
             </div>
             {user ? (

@@ -14,6 +14,8 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  CREATOR_ADMIN_EMAIL,
+  CREATOR_ADMIN_NAME,
   DEFAULT_SYSTEM_PROMPT,
   type MachineBackupPayload,
   type MachineSettings,
@@ -403,6 +405,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       {tab === 'general' && (
         <form onSubmit={handleSaveGeneral} className="machine-card p-5 space-y-5">
+          {/* Creator & Primary Admin Identity */}
+          <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--gold-900)] px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+            <span className="text-[var(--gold-300)] uppercase tracking-wider">
+              Father Creator &amp; Primary Admin: {CREATOR_ADMIN_NAME}
+            </span>
+            <span className="text-[var(--text-muted)]">{CREATOR_ADMIN_EMAIL}</span>
+          </div>
+
           {/* Pure OLED Black Battery Mode */}
           <div className="rounded-xl bg-[var(--surface-2)] border border-[var(--border)] px-4 py-2">
             <GoldToggle

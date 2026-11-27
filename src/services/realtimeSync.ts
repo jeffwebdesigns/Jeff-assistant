@@ -14,8 +14,11 @@ import {
 } from 'firebase/firestore';
 import { dbStorage } from '../db/storage';
 import {
+  CREATOR_ADMIN_EMAIL,
+  CREATOR_ADMIN_NAME,
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_PROMPTS,
   type ActivityEventItem,
   type AlertLogItem,
   type BriefingItem,
@@ -126,7 +129,7 @@ export function sanitizeSettingsForCloud(uid: string, s: MachineSettings): Recor
   const payload: Record<string, unknown> = {
     id: 'owner_settings',
     ownerId: uid,
-    displayName: clampNonEmpty(s.displayName, 120, 'Owner'),
+    displayName: clampNonEmpty(s.displayName, 120, CREATOR_ADMIN_NAME),
     language: s.language === 'sw' ? 'sw' : 'en',
     timezone: clampNonEmpty(s.timezone, 80, 'Africa/Nairobi'),
     currency: clampNonEmpty(s.currency, 16, 'KES'),
@@ -550,10 +553,12 @@ export function startUserRealtimeSync(params: {
             if (!settingsBootstrapped) {
               settingsBootstrapped = true;
               const local = callbacks.getLocalSettings();
+              const isCreatorEmail = user.email?.toLowerCase() === CREATOR_ADMIN_EMAIL;
               const initialSettings: MachineSettings = {
                 ...local,
-                displayName:
-                  local.displayName === 'Owner' && user.displayName
+                displayName: isCreatorEmail
+                  ? CREATOR_ADMIN_NAME
+                  : local.displayName === 'Owner' && user.displayName
                     ? user.displayName
                     : local.displayName,
               };
@@ -568,12 +573,17 @@ export function startUserRealtimeSync(params: {
           const localCur = callbacks.getLocalSettings();
           const cloudSystemPrompt =
             typeof cloudData.systemPrompt === 'string' &&
-            cloudData.systemPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.')
+            LEGACY_DEFAULT_PROMPTS.some((prefix) => cloudData.systemPrompt!.startsWith(prefix))
               ? DEFAULT_SYSTEM_PROMPT
               : cloudData.systemPrompt;
+          const cloudDisplayName =
+            cloudData.displayName === 'Owner' || !cloudData.displayName
+              ? CREATOR_ADMIN_NAME
+              : cloudData.displayName;
           const merged: MachineSettings = {
             ...DEFAULT_SETTINGS,
             ...cloudData,
+            displayName: cloudDisplayName,
             ...(cloudSystemPrompt ? { systemPrompt: cloudSystemPrompt } : {}),
             id: 'owner_settings',
             // Device-local PIN lock stays private on each device

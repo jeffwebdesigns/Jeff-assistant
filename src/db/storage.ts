@@ -1,6 +1,8 @@
 import {
+  CREATOR_ADMIN_NAME,
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_PROMPTS,
   type ActivityEventItem,
   type AlertLogItem,
   type BriefingItem,
@@ -262,19 +264,22 @@ export const dbStorage = {
         ...(existing.alertCategories ?? {}),
       },
     };
+    const isLegacyPrompt = LEGACY_DEFAULT_PROMPTS.some((prefix) =>
+      merged.systemPrompt.startsWith(prefix)
+    );
+    let dirty = false;
+
     if (!existing.voiceDefaultUpgraded) {
       merged.voiceOutputEnabled = true;
       merged.voiceDefaultUpgraded = true;
+      dirty = true;
     }
     if (!existing.englishOnlyUpgraded) {
       merged.language = 'en';
       if (merged.voiceInputLang === 'sw-KE') {
         merged.voiceInputLang = 'en-KE';
       }
-      if (
-        merged.systemPrompt.includes('English or Swahili') ||
-        merged.systemPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.')
-      ) {
+      if (merged.systemPrompt.includes('English or Swahili') || isLegacyPrompt) {
         merged.systemPrompt = DEFAULT_SYSTEM_PROMPT;
       }
       if (typeof existing.hourlyUpdatesEnabled !== 'boolean') {
@@ -284,13 +289,18 @@ export const dbStorage = {
         merged.hourlySpeakEnabled = true;
       }
       merged.englishOnlyUpgraded = true;
-      await putInStore(STORES.settings, merged);
-    } else if (
-      merged.systemPrompt.startsWith('You are THE MACHINE, a private personal AI assistant serving one user.')
-    ) {
+      dirty = true;
+    } else if (isLegacyPrompt) {
       merged.systemPrompt = DEFAULT_SYSTEM_PROMPT;
-      await putInStore(STORES.settings, merged);
-    } else if (!existing.voiceDefaultUpgraded) {
+      dirty = true;
+    }
+
+    if (!merged.displayName || merged.displayName === 'Owner') {
+      merged.displayName = CREATOR_ADMIN_NAME;
+      dirty = true;
+    }
+
+    if (dirty) {
       await putInStore(STORES.settings, merged);
     }
     return merged;

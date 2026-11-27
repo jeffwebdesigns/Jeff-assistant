@@ -182,6 +182,7 @@ export const aiProvider = {
     mode?: ChatMode;
     history: ChatMessage[];
     settings: MachineSettings;
+    activeUserEmail?: string | null;
     tasks: TaskItem[];
     reminders: ReminderItem[];
     notes: NoteItem[];
@@ -254,6 +255,7 @@ export const aiProvider = {
           history: params.history.slice(-16).map((h) => ({ role: h.role, content: h.content })),
           systemPrompt: params.settings.systemPrompt,
           displayName: params.settings.displayName,
+          activeUserEmail: params.activeUserEmail ?? undefined,
           nowNairobi: `${dateStr} ${timeStr}`,
           localContext,
         }),
