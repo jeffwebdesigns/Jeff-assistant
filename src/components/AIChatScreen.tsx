@@ -5,6 +5,7 @@ import {
   Compass,
   Copy,
   Globe,
+  GraduationCap,
   Mic,
   MicOff,
   RotateCcw,
@@ -23,6 +24,7 @@ import type {
   NoteItem,
   ReminderItem,
   TaskItem,
+  TeachingDepth,
 } from '../types/machine';
 import { getTranslations } from '../i18n/translations';
 import { formatTimeOnly } from '../utils/datetime';
@@ -36,6 +38,7 @@ interface AIChatScreenProps {
   reminders: ReminderItem[];
   notes: NoteItem[];
   chatMode: ChatMode;
+  teachingDepth: TeachingDepth;
   isThinking: boolean;
   streamingText: string;
   rateLimitMessage: string | null;
@@ -43,6 +46,7 @@ interface AIChatScreenProps {
   pendingPrompt: string | null;
   onConsumePendingPrompt: () => void;
   onChangeChatMode: (mode: ChatMode) => void;
+  onChangeTeachingDepth: (depth: TeachingDepth) => void;
   onSendMessage: (text: string, overrideMode?: ChatMode) => Promise<void>;
   onCancelStream: () => void;
   onRetryLast: () => Promise<void>;
@@ -70,11 +74,24 @@ const MODE_OPTIONS: Array<{
     icon: Compass,
   },
   {
+    id: 'instructor',
+    label: 'Instructor',
+    desc: '9-part technical engine, architecture & lab demos',
+    icon: GraduationCap,
+  },
+  {
     id: 'fast',
     label: 'Fast',
     desc: 'Instant answers & quick tasks',
     icon: Zap,
   },
+];
+
+const DEPTH_OPTIONS: Array<{ id: TeachingDepth; label: string }> = [
+  { id: 'foundational', label: 'Foundational' },
+  { id: 'intermediate', label: 'Intermediate' },
+  { id: 'advanced', label: 'Advanced' },
+  { id: 'expert', label: 'Expert' },
 ];
 
 const STARTER_PROMPTS: Array<{
@@ -84,6 +101,14 @@ const STARTER_PROMPTS: Array<{
   mode: ChatMode;
   icon: typeof Compass;
 }> = [
+  {
+    title: 'Technical Lesson',
+    subtitle: '9-part mechanics, architecture, lab demo & countermeasures',
+    prompt:
+      'Teach me how Tor v3 onion-service rendezvous architecture, directory authorities, and traffic-correlation limitations work—including an isolated local test simulation concept, OPSEC failure analysis, and detection/countermeasures.',
+    mode: 'instructor',
+    icon: GraduationCap,
+  },
   {
     title: 'Deep Research',
     subtitle: 'Compare solar battery options & ROI for 2026',
@@ -108,14 +133,6 @@ const STARTER_PROMPTS: Array<{
     mode: 'auto',
     icon: Code2,
   },
-  {
-    title: 'Personal Console & Device',
-    subtitle: 'Check tasks, schedule & hourly device activity',
-    prompt:
-      'Summarize my current tasks, upcoming reminders, logged-in device status, and recent hourly activity.',
-    mode: 'fast',
-    icon: Sparkles,
-  },
 ];
 
 export const AIChatScreen: React.FC<AIChatScreenProps> = ({
@@ -125,6 +142,7 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
   reminders,
   notes,
   chatMode,
+  teachingDepth,
   isThinking,
   streamingText,
   rateLimitMessage,
@@ -132,6 +150,7 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
   pendingPrompt,
   onConsumePendingPrompt,
   onChangeChatMode,
+  onChangeTeachingDepth,
   onSendMessage,
   onCancelStream,
   onRetryLast,
@@ -315,7 +334,7 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
         </div>
 
         {/* Intelligence Mode Switcher */}
-        <div className="grid grid-cols-3 gap-2" role="group" aria-label="AI Intelligence Mode">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="AI Intelligence Mode">
           {MODE_OPTIONS.map((opt) => {
             const Icon = opt.icon;
             const active = chatMode === opt.id;
@@ -341,6 +360,36 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
             );
           })}
         </div>
+
+        {/* Adaptive Teaching Depth Row when Instructor mode is active */}
+        {chatMode === 'instructor' && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--gold-500)]">
+              Adaptive Depth
+            </span>
+            <div className="flex items-center gap-1.5" role="group" aria-label="Teaching Depth">
+              {DEPTH_OPTIONS.map((opt) => {
+                const active = teachingDepth === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={isThinking}
+                    aria-pressed={active}
+                    onClick={() => onChangeTeachingDepth(opt.id)}
+                    className={`min-h-[36px] px-3 rounded-lg border text-[11px] font-mono transition disabled:opacity-60 ${
+                      active
+                        ? 'bg-[var(--surface)] border-[var(--gold-500)] text-[var(--gold-300)]'
+                        : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--gold-700)]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Thinking state: slow gold shimmer line sweeping across the top of the chat area */}
@@ -479,7 +528,9 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
                   <span>
                     {chatMode === 'research'
                       ? 'Deep Research active (searching & synthesizing)...'
-                      : t.chat.thinking}
+                      : chatMode === 'instructor'
+                        ? `Technical Instructor (${teachingDepth}) structuring lesson...`
+                        : t.chat.thinking}
                   </span>
                 </div>
               )}
@@ -559,7 +610,9 @@ export const AIChatScreen: React.FC<AIChatScreenProps> = ({
                   ? t.chat.micStop
                   : chatMode === 'research'
                     ? 'Ask any deep research question or paste a URL...'
-                    : t.chat.placeholder
+                    : chatMode === 'instructor'
+                      ? `Ask for a ${teachingDepth} technical lesson, architecture breakdown, or failure analysis...`
+                      : t.chat.placeholder
               }
               className="flex-1 min-h-[40px] max-h-28 resize-none bg-transparent border-0 focus:outline-none py-2 text-sm text-[var(--text)] placeholder-[var(--text-muted)]/75"
             />

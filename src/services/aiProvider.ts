@@ -14,6 +14,7 @@ import type {
   ProposedStructuredItem,
   ReminderItem,
   TaskItem,
+  TeachingDepth,
   UrgencyLevel,
 } from '../types/machine';
 import { createId } from '../db/storage';
@@ -180,6 +181,7 @@ export const aiProvider = {
   async streamChat(params: {
     message: string;
     mode?: ChatMode;
+    teachingDepth?: TeachingDepth;
     history: ChatMessage[];
     settings: MachineSettings;
     activeUserEmail?: string | null;
@@ -200,6 +202,7 @@ export const aiProvider = {
     }
 
     const mode: ChatMode = params.mode ?? 'auto';
+    const teachingDepth: TeachingDepth = params.teachingDepth ?? 'advanced';
     const { dateStr, timeStr } = formatNairobiDateTime(new Date(), params.settings.timezone);
     const localContext = buildLocalContextSummary({
       query: params.message,
@@ -228,8 +231,10 @@ export const aiProvider = {
       }
     }
 
-    const firstChunkTimeoutMs = mode === 'research' ? 46000 : mode === 'fast' ? 22000 : 34000;
-    const overallTimeoutMs = mode === 'research' ? 115000 : mode === 'fast' ? 45000 : 80000;
+    const firstChunkTimeoutMs =
+      mode === 'research' || mode === 'instructor' ? 46000 : mode === 'fast' ? 22000 : 34000;
+    const overallTimeoutMs =
+      mode === 'research' || mode === 'instructor' ? 115000 : mode === 'fast' ? 45000 : 80000;
 
     // Never allow a stalled request to trap the UI in Thinking state indefinitely
     const firstChunkTimer = window.setTimeout(() => {
@@ -252,6 +257,7 @@ export const aiProvider = {
         body: JSON.stringify({
           message: params.message,
           mode,
+          teachingDepth,
           history: params.history.slice(-16).map((h) => ({ role: h.role, content: h.content })),
           systemPrompt: params.settings.systemPrompt,
           displayName: params.settings.displayName,
@@ -266,7 +272,7 @@ export const aiProvider = {
         if (!ct.includes('application/json')) {
           if (response.status === 404) {
             throw new AIProviderError(
-              'AI Chat endpoint (/api/ai/chat) returned 404. Ensure Vercel deploys /api/[...path].ts and redeploy.',
+              'AI Chat endpoint (/api/ai/chat) returned 404. Push api/index.ts, server/apiApp.ts, and vercel.json to GitHub and redeploy on Vercel.',
               'API_ROUTE_MISSING'
             );
           }

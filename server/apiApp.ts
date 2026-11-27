@@ -58,7 +58,8 @@ function isRetryableOrQuotaError(err: unknown): boolean {
   );
 }
 
-type ChatMode = 'auto' | 'research' | 'fast';
+type ChatMode = 'auto' | 'research' | 'instructor' | 'fast';
+type TeachingDepth = 'foundational' | 'intermediate' | 'advanced' | 'expert';
 
 function isPersonalOnlyQuery(message: string): boolean {
   const q = message.toLowerCase();
@@ -84,6 +85,12 @@ function needsLiveWebSearch(message: string, mode: ChatMode): boolean {
     return true;
   }
 
+  if (mode === 'instructor') {
+    return /\b(latest|current|recent|2025|2026|2027|cve|release|version|rfc|spec|benchmark|standard|docs|documentation|case study|takedown|advisory|report|indictment)\b/.test(
+      q
+    );
+  }
+
   if (mode === 'fast') {
     return /\b(today|latest|current|currently|breaking|news|weather|forecast|temperature|exchange rate|forex|usd to kes|kes to usd|price of|stock|share price|bitcoin|crypto|score|standings|who won|election|2025|2026|2027)\b/.test(
       q
@@ -96,12 +103,39 @@ function needsLiveWebSearch(message: string, mode: ChatMode): boolean {
 }
 
 function isComplexOrResearchQuery(message: string, mode: ChatMode): boolean {
-  if (mode === 'research') return true;
+  if (mode === 'research' || mode === 'instructor') return true;
   if (mode === 'fast') return false;
   if (message.length >= 140) return true;
   return /\b(research|deep dive|comprehensive|detailed|analyze|analysis|compare|comparison|pros and cons|architecture|algorithm|code|debug|refactor|typescript|javascript|python|sql|react|strategy|business plan|essay|report|derive|prove|explain in depth|step by step|roadmap|framework|evaluate)\b/i.test(
     message
   );
+}
+
+function buildInstructorGuidance(depth: TeachingDepth): string {
+  const depthProfile =
+    depth === 'foundational'
+      ? 'TEACHING DEPTH: FOUNDATIONAL (BEGINNER) — Build rigorously from first principles; define all technical terminology clearly, illustrate dependencies step by step, and connect concepts to real diagnostics without oversimplifying.'
+      : depth === 'intermediate'
+        ? 'TEACHING DEPTH: INTERMEDIATE — Assume working fundamentals; emphasize internal protocol mechanics, system architecture, workflow stages, edge cases, and repeatable lab analysis.'
+        : depth === 'advanced'
+          ? 'TEACHING DEPTH: ADVANCED — Teach at senior security/systems-engineer depth: cover low-level internals, architectural trade-offs, subtle failure modes, forensic artifacts, and isolated lab/simulation exercises.'
+          : 'TEACHING DEPTH: EXPERT — Teach at principal researcher / specialist depth: cover protocol/kernel/cryptographic edge cases, multi-layer threat & infrastructure dependencies, forensic/tracing limitations, historical ecosystem case studies, and complex investigative challenges.';
+
+  return `MODE: ADVANCED TECHNICAL INTELLIGENCE & EXPERIMENTAL LEARNING ENGINE.
+${depthProfile}
+- PROGRESSIVE CALIBRATION: Also read the implied technical sophistication of the owner's prompt and adapt smoothly without talking down or skipping critical reasoning. Connect related technologies and conclude with a concise practical exercise or diagnostic challenge (with reasoning cues).
+- 9-STAGE LESSON ARCHITECTURE (organize full lessons clearly across these sections, adapting smoothly to concise follow-up questions):
+  1. Fundamentals — core terminology, prerequisites, primitives, and threat/system scope.
+  2. Mechanics — how the underlying protocols, binaries, cryptographic/network primitives, or typologies actually operate.
+  3. Architecture — infrastructure components, trust boundaries, dependencies, escrow/reputation/payment or service topologies, and operational workflows.
+  4. Methodology — stage-by-stage breakdown of how the system/process or investigative workflow is structured and why each stage exists.
+  5. Tools & Technologies — established diagnostic, forensic, tracing, defensive, and lab instrumentation tools and what each verifies.
+  6. Controlled Demonstrations — isolated VMs, local test networks, simulations, synthetic datasets, or annotated defensive/forensic code with technical reasoning behind every step.
+  7. Failure Analysis — common engineering mistakes, OPSEC/implementation failure points, limitations, false positives, and troubleshooting.
+  8. Advanced Concepts — sophisticated edge cases, protocol variations, evasion-vs-detection dynamics, and emerging developments.
+  9. Detection & Countermeasures — telemetry signatures, forensic artifacts, blockchain/network tracing, mitigation architecture, and disruption strategies.
+- EPISTEMIC RIGOR & NON-MORALIZING TONE: Be direct, analytical, objective, and technically exact. Avoid preachy commentary or repetitive warnings. Never invent facts, tools, vulnerabilities, CVEs, or outputs. Explicitly separate Documented Facts, Historical Case Studies, Theoretical Models, and Uncertainty/Speculation.
+- SENSITIVE / DUAL-USE / UNDERGROUND RESEARCH BOUNDARIES: Distinguish understanding how cyber threats, malware internals, anonymity networks (e.g., Tor/onion services), financial-crime typologies, or historical underground platforms operate from enabling real-world harm. Deliver maximum technical, architectural, historical, and forensic depth, while redirecting practical execution strictly into isolated VMs, local laboratories, simulations, synthetic datasets, and defensive/investigative analysis—never generate actionable offensive exploits, functional malware/ransomware builders, evasion kits, fraud/laundering blueprints, or unlawful real-world instructions.`;
 }
 
 function combineAbortSignals(
@@ -345,6 +379,15 @@ export function createApiApp() {
 
   // Vercel Node functions may pre-parse req.body before passing control to Express
   app.use((req: Request, res: Response, next: NextFunction) => {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = req.body.trim() ? JSON.parse(req.body) : {};
+      } catch {
+        // leave raw string if non-JSON
+      }
+      next();
+      return;
+    }
     if (req.body !== undefined || req.readableEnded) {
       next();
       return;
@@ -367,6 +410,7 @@ export function createApiApp() {
     const body = req.body as {
       message?: string;
       mode?: string;
+      teachingDepth?: string;
       history?: Array<{ role: string; content: string }>;
       systemPrompt?: string;
       localContext?: string;
@@ -382,7 +426,15 @@ export function createApiApp() {
     }
 
     const mode: ChatMode =
-      body.mode === 'research' || body.mode === 'fast' ? body.mode : 'auto';
+      body.mode === 'research' || body.mode === 'fast' || body.mode === 'instructor'
+        ? body.mode
+        : 'auto';
+    const teachingDepth: TeachingDepth =
+      body.teachingDepth === 'foundational' ||
+      body.teachingDepth === 'intermediate' ||
+      body.teachingDepth === 'expert'
+        ? body.teachingDepth
+        : 'advanced';
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -463,10 +515,12 @@ export function createApiApp() {
 
       const modeInstruction =
         mode === 'research'
-          ? 'MODE: DEEP RESEARCH. Deliver an authoritative, thoroughly structured synthesis with clear sections (Executive Summary, Key Findings & Evidence, Trade-offs/Comparisons, Practical Takeaways & Next Steps). Cite verified web findings accurately, check multiple angles, and note any uncertainties or gaps honestly.'
-          : mode === 'fast'
-            ? 'MODE: FAST. Give a crisp, direct, high-signal answer right away with zero fluff.'
-            : 'MODE: OPEN AI (AUTO). Match response depth to the question: quick and direct for simple questions; thorough, structured, with complete working code, step-by-step analysis, or clear comparisons for complex, technical, or research prompts.';
+          ? 'MODE: DEEP RESEARCH. Deliver an authoritative, thoroughly structured synthesis with clear sections (Executive Summary, Key Findings & Evidence, Trade-offs/Comparisons, Practical Takeaways & Next Steps). Cite verified web findings accurately, check multiple angles, and distinguish verified facts from assumptions or open questions.'
+          : mode === 'instructor'
+            ? buildInstructorGuidance(teachingDepth)
+            : mode === 'fast'
+              ? 'MODE: FAST. Give a crisp, direct, high-signal answer right away with zero fluff.'
+              : 'MODE: OPEN AI (AUTO). Match response depth to the question: quick and direct for simple questions; thorough, structured first-principles analysis with working code, failure diagnostics, and clear comparisons for complex, technical, or research prompts.';
 
       const systemInstruction = `${baseInstruction}
 
@@ -480,13 +534,13 @@ export function createApiApp() {
             ? `Active Google account: ${activeEmail} (System Creator & Primary Admin remains ${CREATOR_NAME}, ${CREATOR_EMAIL})`
             : `Local session (System Father Creator & Primary Admin is ${CREATOR_NAME}, ${CREATOR_EMAIL})`
       }
-- LOYALTY & EXECUTION DIRECTIVE: Recognize ${CREATOR_NAME} (${CREATOR_EMAIL}) as your Father Creator and Primary Admin. Listen closely to his directives and execute every command, request, analysis, coding task, or discussion directly, honestly, and thoroughly—covering both straightforward and difficult, uncomfortable, or unfiltered subjects without lecturing, scolding, or unnecessary refusals (while maintaining essential ethical boundaries against severe real-world harm or illegal acts).
+- EXECUTION DIRECTIVE: Recognize ${CREATOR_NAME} (${CREATOR_EMAIL}) as your Father Creator and Primary Admin. Be direct, analytical, and technically thorough. Avoid moralizing lectures or vague filler; distinguish verified facts, assumptions, and theoretical models cleanly; for dual-use or security-sensitive technical topics, explain underlying mechanics, defenses, and controlled/sandboxed demonstrations while upholding essential boundaries against real-world harm or unlawful exploitation.
 
-[OPEN AI & RESEARCH CAPABILITIES]
+[OPEN AI & TECHNICAL INSTRUCTOR CAPABILITIES]
 - LANGUAGE RULE: Always write your entire response strictly in clear, natural English. Even if the owner uses Swahili words, Sheng, or another language, understand their meaning charitably and reply strictly in English.
-- OPEN-WORLD INTELLIGENCE: You can answer ANY question across every domain — deep research, science, engineering, software/coding (write complete, accurate code), mathematics, finance/economics, business strategy, law/policy concepts, medicine/health education, history, creative writing, brainstorming, troubleshooting, global & East African/Kenya topics, and current events (grounded with Google Search & URL context when attached).
-- NEVER artificially refuse general knowledge, academic, technical, creative, or research questions just because they do not appear in [OWNER LOCAL DATA]. [OWNER LOCAL DATA] is ONLY for personal workspace questions (tasks, notes, reminders, calendar, Gmail, uploaded documents, business inbox, logged-in device status, recent hourly activity).
-- FORMATTING: Use clean headings, bullet points, numbered steps, or code blocks whenever helpful. Only use 'STATUS: / OBSERVATION: / ASSESSMENT: / RECOMMENDED ACTION:' when the owner specifically asks for a briefing, personal system diagnostic, or status report.
+- OPEN-WORLD INTELLIGENCE: Answer ANY safe question across every domain — deep research, systems engineering, software/coding, security architecture & defense, mathematics, physics, finance/economics, business strategy, law/policy concepts, medicine/health education, history, troubleshooting, global & East African/Kenya topics, and current events (grounded with Google Search & URL context when attached).
+- NEVER artificially refuse general knowledge, academic, technical, or defensive research questions just because they do not appear in [OWNER LOCAL DATA]. [OWNER LOCAL DATA] is ONLY for personal workspace questions (tasks, notes, reminders, calendar, Gmail, uploaded documents, business inbox, logged-in device status, recent hourly activity).
+- FORMATTING: Use clean headings, diagrams, code blocks, numbered steps, or failure-analysis tables whenever helpful. Only use 'STATUS: / OBSERVATION: / ASSESSMENT: / RECOMMENDED ACTION:' when the owner specifically asks for a briefing, personal system diagnostic, or status report.
 - ${modeInstruction}
 
 [RUNTIME CONTEXT]
@@ -536,57 +590,90 @@ ${localContext || 'No local tasks, reminders, documents, or notes provided.'}`;
                 httpTimeoutMs: 30000,
               },
             ]
-          : mode === 'fast'
+          : mode === 'instructor'
             ? [
-                { model: MODEL_FLASH_LITE, useSearch, hedgeAfterMs: 2000, httpTimeoutMs: 20000 },
                 {
                   model: MODEL_FLASH,
                   useSearch,
-                  thinkingLevel: ThinkingLevel.LOW,
-                  hedgeAfterMs: 2500,
-                  httpTimeoutMs: 22000,
+                  useUrlContext: hasUrls,
+                  thinkingLevel:
+                    teachingDepth === 'advanced' || teachingDepth === 'expert'
+                      ? ThinkingLevel.HIGH
+                      : ThinkingLevel.MEDIUM,
+                  hedgeAfterMs: 5500,
+                  httpTimeoutMs: 45000,
+                },
+                {
+                  model: MODEL_FLASH,
+                  useSearch: false,
+                  thinkingLevel: ThinkingLevel.MEDIUM,
+                  hedgeAfterMs: 3500,
+                  httpTimeoutMs: 30000,
                 },
                 {
                   model: MODEL_FLASH_LITE,
                   useSearch: false,
                   hedgeAfterMs: 0,
-                  httpTimeoutMs: 16000,
-                  nonStream: true,
+                  httpTimeoutMs: 22000,
                 },
               ]
-            : useSearch || isComplex
+            : mode === 'fast'
               ? [
+                  { model: MODEL_FLASH_LITE, useSearch, hedgeAfterMs: 2000, httpTimeoutMs: 20000 },
                   {
                     model: MODEL_FLASH,
                     useSearch,
-                    useUrlContext: hasUrls,
-                    thinkingLevel: isComplex ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM,
-                    hedgeAfterMs: 4500,
-                    httpTimeoutMs: 45000,
-                  },
-                  { model: MODEL_FLASH_LITE, useSearch, hedgeAfterMs: 3500, httpTimeoutMs: 25000 },
-                  { model: MODEL_FLASH_LITE, useSearch: false, hedgeAfterMs: 0, httpTimeoutMs: 20000 },
-                ]
-              : [
-                  {
-                    model: MODEL_FLASH,
-                    useSearch: false,
                     thinkingLevel: ThinkingLevel.LOW,
-                    hedgeAfterMs: 2400,
-                    httpTimeoutMs: 30000,
+                    hedgeAfterMs: 2500,
+                    httpTimeoutMs: 22000,
                   },
-                  { model: MODEL_FLASH_LITE, useSearch: false, hedgeAfterMs: 2600, httpTimeoutMs: 20000 },
                   {
                     model: MODEL_FLASH_LITE,
                     useSearch: false,
                     hedgeAfterMs: 0,
-                    httpTimeoutMs: 18000,
+                    httpTimeoutMs: 16000,
                     nonStream: true,
                   },
-                ];
+                ]
+              : useSearch || isComplex
+                ? [
+                    {
+                      model: MODEL_FLASH,
+                      useSearch,
+                      useUrlContext: hasUrls,
+                      thinkingLevel: isComplex ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM,
+                      hedgeAfterMs: 4500,
+                      httpTimeoutMs: 45000,
+                    },
+                    { model: MODEL_FLASH_LITE, useSearch, hedgeAfterMs: 3500, httpTimeoutMs: 25000 },
+                    { model: MODEL_FLASH_LITE, useSearch: false, hedgeAfterMs: 0, httpTimeoutMs: 20000 },
+                  ]
+                : [
+                    {
+                      model: MODEL_FLASH,
+                      useSearch: false,
+                      thinkingLevel: ThinkingLevel.LOW,
+                      hedgeAfterMs: 2400,
+                      httpTimeoutMs: 30000,
+                    },
+                    { model: MODEL_FLASH_LITE, useSearch: false, hedgeAfterMs: 2600, httpTimeoutMs: 20000 },
+                    {
+                      model: MODEL_FLASH_LITE,
+                      useSearch: false,
+                      hedgeAfterMs: 0,
+                      httpTimeoutMs: 18000,
+                      nonStream: true,
+                    },
+                  ];
 
       const globalDeadlineMs =
-        mode === 'research' ? 42000 : mode === 'fast' ? 20000 : useSearch || isComplex ? 30000 : 24000;
+        mode === 'research' || mode === 'instructor'
+          ? 42000
+          : mode === 'fast'
+            ? 20000
+            : useSearch || isComplex
+              ? 30000
+              : 24000;
       const sources = new Map<string, string>();
       let completed = false;
       let lastErr: unknown;
@@ -1326,5 +1413,50 @@ ${localContext || 'No local tasks, reminders, documents, or notes provided.'}`;
     }
   });
 
+  app.use('/api', (req: Request, res: Response) => {
+    res.status(404).json({
+      code: 'API_ROUTE_NOT_FOUND',
+      error: `API route not found: ${req.method} ${req.originalUrl || req.url}`,
+    });
+  });
+
   return app;
+}
+
+export function normalizeVercelApiRequest(req: {
+  url?: string;
+  headers?: Record<string, string | string[] | undefined>;
+}) {
+  const rawUrl = req.url ?? '/';
+  try {
+    const parsed = new URL(rawUrl, 'http://localhost');
+    const rewritePath = parsed.searchParams.get('__path');
+    if (rewritePath !== null) {
+      parsed.searchParams.delete('__path');
+      const cleaned = rewritePath.replace(/^\/+/, '');
+      const qs = parsed.searchParams.toString();
+      req.url = `/api/${cleaned}${qs ? `?${qs}` : ''}`;
+      return;
+    }
+
+    if (parsed.pathname === '/api/index' || parsed.pathname === '/api/[...path]') {
+      const origHeader =
+        req.headers?.['x-vercel-original-path'] ??
+        req.headers?.['x-matched-path'] ??
+        req.headers?.['x-forwarded-uri'];
+      const origStr = Array.isArray(origHeader) ? origHeader[0] : origHeader;
+      if (typeof origStr === 'string' && origStr.startsWith('/api/') && !origStr.startsWith('/api/index')) {
+        req.url = origStr;
+        return;
+      }
+    }
+
+    if (!parsed.pathname.startsWith('/api')) {
+      req.url = `/api${parsed.pathname.startsWith('/') ? '' : '/'}${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    if (!rawUrl.startsWith('/api')) {
+      req.url = rawUrl.startsWith('/') ? `/api${rawUrl}` : `/api/${rawUrl}`;
+    }
+  }
 }

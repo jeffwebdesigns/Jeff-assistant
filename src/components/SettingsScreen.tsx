@@ -5,6 +5,7 @@ import {
   Cloud,
   Copy,
   Download,
+  GraduationCap,
   Lock,
   RefreshCw,
   RotateCcw,
@@ -17,8 +18,10 @@ import {
   CREATOR_ADMIN_EMAIL,
   CREATOR_ADMIN_NAME,
   DEFAULT_SYSTEM_PROMPT,
+  INSTRUCTOR_SYSTEM_PROMPT,
   type MachineBackupPayload,
   type MachineSettings,
+  type TeachingDepth,
 } from '../types/machine';
 import { getTranslations } from '../i18n/translations';
 import { dbStorage, hashPin } from '../db/storage';
@@ -56,6 +59,8 @@ interface SettingsScreenProps {
   onSwitchGoogleAccount: () => Promise<void>;
   onDisconnectGoogle: () => Promise<void>;
   onUpdateSettings: (next: MachineSettings) => Promise<void>;
+  teachingDepth?: TeachingDepth;
+  onChangeTeachingDepth?: (depth: TeachingDepth) => void;
   onLockNow: () => void;
   onDataReloaded: () => Promise<void>;
 }
@@ -77,6 +82,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onSwitchGoogleAccount,
   onDisconnectGoogle,
   onUpdateSettings,
+  teachingDepth,
+  onChangeTeachingDepth,
   onLockNow,
   onDataReloaded,
 }) => {
@@ -158,7 +165,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       if (!ct.includes('application/json')) {
         setHealthResult({
           status: 'error',
-          summary: `HTTP ${resp.status} non-JSON response. Make sure Vercel deploys api/[...path].ts and vercel.json, then redeploy.`,
+          summary: `HTTP ${resp.status} non-JSON response. Push api/index.ts, server/apiApp.ts, and vercel.json to GitHub and redeploy on Vercel.`,
         });
         return;
       }
@@ -467,17 +474,45 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between gap-2 mb-1.5">
-              <label className="text-xs text-[var(--text-muted)]">{t.settings.systemPrompt}</label>
-              <button
-                type="button"
-                onClick={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT)}
-                className="min-h-[44px] px-2.5 text-xs font-mono text-[var(--gold-300)] hover:text-[var(--gold-100)] flex items-center gap-1"
+          {teachingDepth && onChangeTeachingDepth && (
+            <div>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">
+                Technical Instructor Default Depth
+              </label>
+              <select
+                value={teachingDepth}
+                onChange={(e) => onChangeTeachingDepth(e.target.value as TeachingDepth)}
+                className="w-full min-h-[44px] machine-input px-3.5 text-sm"
               >
-                <RotateCcw strokeWidth={1.5} className="w-3.5 h-3.5" />
-                <span>{t.settings.restorePrompt}</span>
-              </button>
+                <option value="foundational">Foundational (First principles, terminology &amp; prerequisites)</option>
+                <option value="intermediate">Intermediate (Protocol mechanics, methodology &amp; lab workflows)</option>
+                <option value="advanced">Advanced (Low-level internals, trade-offs &amp; failure analysis)</option>
+                <option value="expert">Expert (Research-grade edge cases, forensics &amp; countermeasures)</option>
+              </select>
+            </div>
+          )}
+
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+              <label className="text-xs text-[var(--text-muted)]">{t.settings.systemPrompt}</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSystemPrompt(INSTRUCTOR_SYSTEM_PROMPT)}
+                  className="min-h-[44px] px-2.5 text-xs font-mono text-[var(--gold-300)] hover:text-[var(--gold-100)] flex items-center gap-1"
+                >
+                  <GraduationCap strokeWidth={1.5} className="w-3.5 h-3.5" />
+                  <span>Load Instructor Preset</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT)}
+                  className="min-h-[44px] px-2.5 text-xs font-mono text-[var(--gold-300)] hover:text-[var(--gold-100)] flex items-center gap-1"
+                >
+                  <RotateCcw strokeWidth={1.5} className="w-3.5 h-3.5" />
+                  <span>{t.settings.restorePrompt}</span>
+                </button>
+              </div>
             </div>
             <textarea
               rows={6}

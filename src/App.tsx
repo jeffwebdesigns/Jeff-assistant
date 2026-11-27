@@ -65,6 +65,7 @@ import {
   type ScreenId,
   type TaskItem,
   type TaskStatus,
+  type TeachingDepth,
 } from './types/machine';
 import { PinLockScreen } from './components/PinLockScreen';
 import { OfflineBanner, PWAInstallButton } from './components/PWAInstallButton';
@@ -114,9 +115,19 @@ export default function App() {
   const [chatMode, setChatMode] = useState<ChatMode>(() => {
     try {
       const saved = localStorage.getItem('machine_chat_mode');
-      return saved === 'research' || saved === 'fast' ? saved : 'auto';
+      return saved === 'research' || saved === 'instructor' || saved === 'fast' ? saved : 'auto';
     } catch {
       return 'auto';
+    }
+  });
+  const [teachingDepth, setTeachingDepth] = useState<TeachingDepth>(() => {
+    try {
+      const saved = localStorage.getItem('machine_teaching_depth');
+      return saved === 'foundational' || saved === 'intermediate' || saved === 'expert'
+        ? saved
+        : 'advanced';
+    } catch {
+      return 'advanced';
     }
   });
   const [isThinking, setIsThinking] = useState(false);
@@ -663,6 +674,15 @@ export default function App() {
     }
   }, []);
 
+  const handleChangeTeachingDepth = useCallback((nextDepth: TeachingDepth) => {
+    setTeachingDepth(nextDepth);
+    try {
+      localStorage.setItem('machine_teaching_depth', nextDepth);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const handleSendChat = useCallback(
     async (text: string, overrideMode?: ChatMode) => {
       const trimmed = text.trim();
@@ -707,6 +727,7 @@ export default function App() {
         const result = await aiProvider.streamChat({
           message: trimmed,
           mode: activeMode,
+          teachingDepth,
           history: historyBefore,
           settings,
           activeUserEmail: cloudUserRef.current?.email ?? null,
@@ -767,7 +788,7 @@ export default function App() {
         }
       }
     },
-    [businessMessages, calendarEvents, chatMode, documents, emailSummaries, notes, pushItemToCloud, recordActivity, reminders, settings, t.chat.rateLimitMsg, tasks, activityLogs, deviceTelemetry]
+    [businessMessages, calendarEvents, chatMode, documents, emailSummaries, notes, pushItemToCloud, recordActivity, reminders, settings, t.chat.rateLimitMsg, tasks, teachingDepth, activityLogs, deviceTelemetry]
   );
 
   const handleRetryLast = async () => {
@@ -794,6 +815,7 @@ export default function App() {
       const result = await aiProvider.streamChat({
         message: prompt,
         mode: lastChatModeRef.current,
+        teachingDepth,
         history: cleanHistory,
         settings,
         activeUserEmail: cloudUserRef.current?.email ?? null,
@@ -1120,6 +1142,7 @@ export default function App() {
                 reminders={reminders}
                 notes={notes}
                 chatMode={chatMode}
+                teachingDepth={teachingDepth}
                 isThinking={isThinking}
                 streamingText={streamingText}
                 rateLimitMessage={rateLimitMessage}
@@ -1127,6 +1150,7 @@ export default function App() {
                 pendingPrompt={pendingChatPrompt}
                 onConsumePendingPrompt={() => setPendingChatPrompt(null)}
                 onChangeChatMode={handleChangeChatMode}
+                onChangeTeachingDepth={handleChangeTeachingDepth}
                 onSendMessage={handleSendChat}
                 onCancelStream={handleCancelChat}
                 onRetryLast={handleRetryLast}
@@ -1335,6 +1359,8 @@ export default function App() {
                 onSwitchGoogleAccount={googleAuth.switchAccount}
                 onDisconnectGoogle={googleAuth.disconnect}
                 onUpdateSettings={handleUpdateSettings}
+                teachingDepth={teachingDepth}
+                onChangeTeachingDepth={handleChangeTeachingDepth}
                 onLockNow={() => setUnlocked(false)}
                 onDataReloaded={loadAllFromIndexedDB}
               />
